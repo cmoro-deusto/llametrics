@@ -143,6 +143,25 @@ describe('chart data path', () => {
     expect(data[2].every((v) => v === null)).toBe(true); // no prefill in fixture ticks
   });
 
+  it('scale + forward-fill: 0..1 ratios plot as 0–100% and hold across idle gaps', () => {
+    const ticks = makeTicks(4).map((t, i) => ({
+      ...t,
+      derived: { ...t.derived, cacheHitRate: i === 0 || i === 3 ? (i === 0 ? 0.99 : 0.5) : null },
+    }));
+    render(
+      <TrendChart
+        ticks={ticks}
+        series={[
+          { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev' },
+        ]}
+      />,
+    );
+    expect(constructions).toHaveLength(1);
+    const data = constructions[0].data;
+    // filled column: [0.99, 0.99, 0.99, 0.5] → ×100, expanded for step
+    expect(data[1]).toEqual([99, 99, 99, 99, 99, 99, 50]);
+  });
+
   it('mixed step + non-step series share one expanded x frame', () => {
     const ticks = makeTicks(4).map((t, i) => ({
       ...t,

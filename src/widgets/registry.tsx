@@ -33,10 +33,12 @@ const REQUESTS_SERIES: ChartSeriesDef[] = [
   { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true },
 ];
 const CACHE_SERIES: ChartSeriesDef[] = [
-  { key: 'cacheHitRate', label: 'hit rate (0–1)', colorVar: 'chart-1', source: 'derived' },
+  // 0..1 ratio plotted as a percentage; holds the last measured rate
+  // across idle gaps (a prompt only produces a new value when it ends)
+  { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev' },
 ];
 const SPEC_SERIES: ChartSeriesDef[] = [
-  { key: 'specAcceptRate', label: 'accept rate (0–1)', colorVar: 'chart-3', source: 'derived' },
+  { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev' },
 ];
 const BUSY_SERIES: ChartSeriesDef[] = [
   { key: GAUGES.busySlotsPerDecode, label: 'avg busy slots', colorVar: 'chart-5', source: 'gauges', step: true },

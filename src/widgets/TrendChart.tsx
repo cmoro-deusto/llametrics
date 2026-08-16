@@ -15,6 +15,11 @@ export interface ChartSeriesDef {
   colorVar: string;
   source: 'gauges' | 'derived';
   step?: boolean;
+  /** multiply values before plotting (e.g. 100 to plot 0..1 ratios as 0–100%) */
+  scale?: number;
+  /** forward-fill nulls with the previous value (holds the last measured
+   * rate across idle gaps instead of drawing diagonal drops) */
+  fill?: 'prev';
 }
 
 /**
@@ -103,7 +108,8 @@ export function TrendChart({
 
   const sample = (s: ChartSeriesDef, t: Tick): number | null => {
     const v = s.source === 'gauges' ? t.gauges[s.key] : t.derived[s.key];
-    return v === undefined || v === null || !Number.isFinite(v) ? null : v;
+    if (v === undefined || v === null || !Number.isFinite(v)) return null;
+    return v * (s.scale ?? 1);
   };
 
   /**
@@ -113,7 +119,17 @@ export function TrendChart({
   const buildData = (): [number[], ...(number | null)[][]] => {
     const anyStep = series.some((s) => s.step);
     const rawX = ticks.map((t) => t.t / 1000);
-    const rawCols = series.map((s) => ticks.map((t) => sample(s, t)));
+    const rawCols = series.map((s) => {
+      const col = ticks.map((t) => sample(s, t));
+      if (s.fill === 'prev') {
+        let last: number | null = null;
+        for (let i = 0; i < col.length; i++) {
+          if (col[i] !== null) last = col[i];
+          else col[i] = last; // leading nulls (no data yet) stay null
+        }
+      }
+      return col;
+    });
     let data: [number[], ...(number | null)[][]] = anyStep
       ? expandSteps(rawX, rawCols, series.map((s) => !!s.step))
       : [rawX, ...rawCols];
