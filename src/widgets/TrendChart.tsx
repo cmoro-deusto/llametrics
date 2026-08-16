@@ -28,6 +28,13 @@ export interface ChartSeriesDef {
    * prefill) that would squash each other on a shared axis.
    */
   yScale?: string;
+  /** connect the line across null gaps (uPlot draws nothing through
+   * nulls by default — a one-tick burst between idles is invisible)
+   * unless gaps should read as breaks in the signal */
+  spanGaps?: boolean;
+  /** draw a dot at every sample point (px size; for sparse series where
+   * isolated points would otherwise be invisible until hovered) */
+  points?: number;
 }
 
 /**
@@ -240,6 +247,10 @@ export function TrendChart({
           fill: withAlpha(colors[`--${s.colorVar}`], 0.07),
           width: 2,
           ...(s.yScale ? { scale: s.yScale } : {}),
+          ...(s.spanGaps ? { spanGaps: true } : {}),
+          ...(s.points
+            ? { points: { show: true, size: s.points, width: 1 } }
+            : {}),
         })),
       ],
       scales: {

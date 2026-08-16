@@ -26,7 +26,11 @@ const TOK_S_SERIES: ChartSeriesDef[] = [
   // the /metrics gauges only spike when a task ENDS. Mixed magnitudes
   // (80 tok/s gen vs ~1200 tok/s prefill) get separate y-axes so neither
   // series squashes the other.
-  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived' },
+  // bursty workloads leave null gaps between tasks and uPlot draws
+  // nothing through nulls (a one-tick burst is invisible until hovered):
+  // span the gaps and mark every sample with a dot so short tasks stay
+  // visible
+  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived', spanGaps: true, points: 3 },
   {
     key: 'promptPrefillTokS',
     label: 'prompt (prefill)',

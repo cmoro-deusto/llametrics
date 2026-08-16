@@ -196,6 +196,24 @@ describe('chart data path', () => {
     expect(opts.series.find((s) => s.label === 'gen')?.scale).toBeUndefined();
   });
 
+  it('sparse series can span gaps and mark sample points', () => {
+    const ticks = makeTicks(4);
+    render(
+      <TrendChart
+        ticks={ticks}
+        series={[
+          { key: 'liveGenTokS', label: 'gen', colorVar: 'chart-1', source: 'derived', spanGaps: true, points: 3 },
+        ]}
+      />,
+    );
+    const opts = constructions[0].options as unknown as {
+      series: { label: string; spanGaps?: boolean; points?: { show?: boolean; size?: number } }[];
+    };
+    const gen = opts.series.find((s) => s.label === 'gen');
+    expect(gen?.spanGaps).toBe(true);
+    expect(gen?.points).toEqual({ show: true, size: 3, width: 1 });
+  });
+
   it('mixed step + non-step series share one expanded x frame', () => {
     const ticks = makeTicks(4).map((t, i) => ({
       ...t,
