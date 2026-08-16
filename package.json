@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Modern, themeable web dashboard for llama-server metrics",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "engines": {
     "node": ">=20"
