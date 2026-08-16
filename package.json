@@ -1,12 +1,18 @@
 {
-  "name": "llametrics",
+  "name": "@gondor/llametrics",
   "version": "0.1.0",
   "description": "Modern, themeable web dashboard for llama-server metrics",
   "type": "module",
   "license": "MIT",
-  "private": true,
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cmoro-deusto/llametrics.git"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "bin": {
     "llametrics": "bin/llametrics.mjs"
