@@ -14,10 +14,32 @@ import type { Tick } from '../lib/history';
  *  server gauge is kept visible as a "now" chip */
 const ROLLING_MS = 60_000;
 import { KpiCard } from './KpiCard';
-import { TrendChart } from './TrendChart';
+import { TrendChart, type ChartSeriesDef } from './TrendChart';
 import { ModelsCard } from './ModelsCard';
 import { SlotsCard } from './SlotsCard';
 import { CountersCard } from './CountersCard';
+
+// module-level constants: TrendChart's effect deps include the series
+// identity — inline arrays would recreate the uPlot instance on every tick
+const TOK_S_SERIES: ChartSeriesDef[] = [
+  // live per-poll rates from /slots diffs — these move while a task runs;
+  // the /metrics gauges only spike when a task ENDS
+  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived' },
+  { key: 'livePromptTokS', label: 'prompt (live)', colorVar: 'chart-2', source: 'derived' },
+];
+const REQUESTS_SERIES: ChartSeriesDef[] = [
+  { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true },
+  { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true },
+];
+const CACHE_SERIES: ChartSeriesDef[] = [
+  { key: 'cacheHitRate', label: 'hit rate (0–1)', colorVar: 'chart-1', source: 'derived' },
+];
+const SPEC_SERIES: ChartSeriesDef[] = [
+  { key: 'specAcceptRate', label: 'accept rate (0–1)', colorVar: 'chart-3', source: 'derived' },
+];
+const BUSY_SERIES: ChartSeriesDef[] = [
+  { key: GAUGES.busySlotsPerDecode, label: 'avg busy slots', colorVar: 'chart-5', source: 'gauges', step: true },
+];
 
 export interface WidgetMeta {
   title: string;
@@ -155,62 +177,23 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
 
   'chart:tok-s': {
     meta: { title: 'Throughput (tok/s)', span: 6 },
-    render: ({ ticks }) => (
-      <TrendChart
-        ticks={ticks}
-        series={[
-          // live per-poll rates from /slots diffs — these move while a task
-          // runs; the /metrics gauges only spike when a task ENDS
-          { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived' },
-          { key: 'livePromptTokS', label: 'prompt (live)', colorVar: 'chart-2', source: 'derived' },
-        ]}
-      />
-    ),
+    render: ({ ticks }) => <TrendChart ticks={ticks} series={TOK_S_SERIES} />,
   },
   'chart:requests': {
     meta: { title: 'Requests', span: 6 },
-    render: ({ ticks }) => (
-      <TrendChart
-        ticks={ticks}
-        series={[
-          { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true },
-          { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true },
-        ]}
-      />
-    ),
+    render: ({ ticks }) => <TrendChart ticks={ticks} series={REQUESTS_SERIES} />,
   },
   'chart:cache-hit-rate': {
     meta: { title: 'Prompt cache hit rate', span: 6 },
-    render: ({ ticks }) => (
-      <TrendChart
-        ticks={ticks}
-        series={[
-          { key: 'cacheHitRate', label: 'hit rate (0–1)', colorVar: 'chart-1', source: 'derived' },
-        ]}
-      />
-    ),
+    render: ({ ticks }) => <TrendChart ticks={ticks} series={CACHE_SERIES} />,
   },
   'chart:spec-accept-rate': {
     meta: { title: 'Speculative accept rate', span: 6 },
-    render: ({ ticks }) => (
-      <TrendChart
-        ticks={ticks}
-        series={[
-          { key: 'specAcceptRate', label: 'accept rate (0–1)', colorVar: 'chart-3', source: 'derived' },
-        ]}
-      />
-    ),
+    render: ({ ticks }) => <TrendChart ticks={ticks} series={SPEC_SERIES} />,
   },
   'chart:busy-slots': {
     meta: { title: 'Busy slots per decode', span: 6 },
-    render: ({ ticks }) => (
-      <TrendChart
-        ticks={ticks}
-        series={[
-          { key: GAUGES.busySlotsPerDecode, label: 'avg busy slots', colorVar: 'chart-5', source: 'gauges', step: true },
-        ]}
-      />
-    ),
+    render: ({ ticks }) => <TrendChart ticks={ticks} series={BUSY_SERIES} />,
   },
 
   models: {

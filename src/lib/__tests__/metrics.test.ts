@@ -3,7 +3,6 @@ import {
   COUNTERS,
   computeDerived,
   computeSinceStart,
-  downsampleMinMax,
   liveSlotRate,
   rollingRate,
   type SlotLiveSample,
@@ -181,27 +180,3 @@ describe('liveSlotRate', () => {
   });
 });
 
-describe('downsampleMinMax', () => {
-  it('returns input when below target', () => {
-    const pts: [number, number][] = [[1, 1], [2, 5], [3, 2]];
-    expect(downsampleMinMax(pts, 10)).toEqual(pts);
-  });
-
-  it('preserves min and max within each bucket', () => {
-    const pts: [number, number][] = [];
-    for (let i = 0; i < 100; i++) pts.push([i, i === 50 ? 1000 : 1]);
-    const out = downsampleMinMax(pts, 10);
-    expect(out.length).toBeLessThanOrEqual(20);
-    const values = out.map(([, v]) => v);
-    expect(values).toContain(1000); // spike kept
-    expect(values).toContain(1);
-  });
-
-  it('keeps time ordering', () => {
-    const pts: [number, number][] = Array.from({ length: 500 }, (_, i) => [i, Math.sin(i)]);
-    const out = downsampleMinMax(pts, 50);
-    for (let i = 1; i < out.length; i++) {
-      expect(out[i][0]).toBeGreaterThanOrEqual(out[i - 1][0]);
-    }
-  });
-});

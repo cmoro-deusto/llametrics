@@ -394,6 +394,15 @@ code {
   margin-right: 5px;
 }
 
+.chart-empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
 /* ---------- model cards ---------- */
 
 .model-grid {

@@ -228,31 +228,3 @@ export function rollingRate(
   if (d < 0) return null; // server restarted within the window
   return d / dt;
 }
-
-/**
- * Downsample points to ~`target` items using min/max buckets so chart
- * spikes are preserved. Points must be sorted by time ascending.
- */
-export function downsampleMinMax(
-  points: [number, number][],
-  target: number,
-): [number, number][] {
-  if (points.length <= target) return points;
-  const bucketSize = Math.ceil(points.length / target);
-  const out: [number, number][] = [];
-  for (let i = 0; i < points.length; i += bucketSize) {
-    let minT = points[i][0], minV = points[i][1];
-    let maxT = points[i][0], maxV = points[i][1];
-    const end = Math.min(i + bucketSize, points.length);
-    for (let j = i; j < end; j++) {
-      const [t, v] = points[j];
-      if (v < minV) [minT, minV] = [t, v];
-      if (v > maxV) [maxT, maxV] = [t, v];
-    }
-    // emit in time order (min and max may occur in either order)
-    if (minT === maxT) out.push([minT, minV]);
-    else if (minT < maxT) out.push([minT, minV], [maxT, maxV]);
-    else out.push([maxT, maxV], [minT, minV]);
-  }
-  return out;
-}

@@ -274,6 +274,7 @@ class DashboardEngine {
           slots: curSlots ?? undefined,
         };
         this.prevCounters = counters;
+        this.prevSlots = curSlots;
         this.prevT = now;
         void historyStore.append(tick).catch(() => undefined);
 
