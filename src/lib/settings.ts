@@ -4,6 +4,7 @@
  * can subscribe.
  */
 import { useSyncExternalStore } from 'react';
+import type { LayoutOverride } from './layout';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type PaletteId = 'default' | 'ocean' | 'ember' | 'moss' | 'grape';
@@ -35,8 +36,12 @@ export interface Settings {
   widgetOrder: string[];
   /** hidden widget ids */
   widgetHidden: Record<string, boolean>;
-  /** per-widget grid span overrides (1..12 of the 12-column grid) */
-  widgetSpans: Record<string, number>;
+  /**
+   * per-widget freeform layout: size (w/h in grid units) and, when the
+   * user has placed it, explicit position (x/y). Widgets without x/y
+   * flow automatically.
+   */
+  widgetLayout: Record<string, LayoutOverride>;
 }
 
 const STORAGE_KEY = 'llametrics.settings.v1';
@@ -68,7 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   numberFormat: 'human',
   widgetOrder: [...DEFAULT_WIDGET_ORDER],
   widgetHidden: {},
-  widgetSpans: {},
+  widgetLayout: {},
 };
 
 export const CHART_WINDOW_PRESETS_MIN = [5, 15, 60, 360, 1440, 4320] as const;
@@ -122,11 +127,27 @@ export function sanitizeSettings(input: unknown): Settings {
       ? Math.min(4320, Math.max(1, Math.round(o.chartWindowMin)))
       : d.chartWindowMin;
 
-  const widgetSpans: Record<string, number> = {};
-  if (typeof o.widgetSpans === 'object' && o.widgetSpans !== null) {
-    for (const [k, v] of Object.entries(o.widgetSpans as Record<string, unknown>)) {
+  const widgetLayout: Record<string, LayoutOverride> = {};
+  const layoutRaw =
+    typeof o.widgetLayout === 'object' && o.widgetLayout !== null
+      ? (o.widgetLayout as Record<string, unknown>)
+      : {};
+  const entryKeys = ['w', 'h', 'x', 'y'] as const;
+  for (const [id, raw] of Object.entries(layoutRaw)) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const e = raw as Record<string, unknown>;
+    const out: LayoutOverride = {};
+    if (typeof e.w === 'number' && Number.isFinite(e.w)) out.w = Math.min(12, Math.max(1, Math.round(e.w)));
+    if (typeof e.h === 'number' && Number.isFinite(e.h)) out.h = Math.min(48, Math.max(1, Math.round(e.h)));
+    if (typeof e.x === 'number' && Number.isFinite(e.x)) out.x = Math.min(11, Math.max(0, Math.round(e.x)));
+    if (typeof e.y === 'number' && Number.isFinite(e.y)) out.y = Math.min(100, Math.max(0, Math.round(e.y)));
+    if (entryKeys.some((k) => k in out)) widgetLayout[id] = out;
+  }
+  // one-time migration from the old column-only resize (widgetSpans)
+  if (Object.keys(widgetLayout).length === 0 && typeof o.widgetSpans === 'object' && o.widgetSpans !== null) {
+    for (const [id, v] of Object.entries(o.widgetSpans as Record<string, unknown>)) {
       if (typeof v === 'number' && Number.isFinite(v)) {
-        widgetSpans[k] = Math.min(12, Math.max(1, Math.round(v)));
+        widgetLayout[id] = { w: Math.min(12, Math.max(1, Math.round(v))) };
       }
     }
   }
@@ -143,7 +164,7 @@ export function sanitizeSettings(input: unknown): Settings {
       typeof o.widgetHidden === 'object' && o.widgetHidden !== null
         ? (o.widgetHidden as Record<string, boolean>)
         : {},
-    widgetSpans,
+    widgetLayout,
   };
 }
 

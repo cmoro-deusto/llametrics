@@ -90,18 +90,18 @@ function withAlpha(color: string, alpha: number): string {
 export function TrendChart({
   series,
   ticks,
-  height = 220,
   unit = 'count',
 }: {
   series: ChartSeriesDef[];
   ticks: Tick[];
-  height?: number;
   /** how to format tooltip values */
   unit?: 'rate' | 'percent' | 'count';
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const uRef = useRef<uPlot | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+  // the panel is user-resizable: the chart fills whatever box it is in
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
   const [chartError, setChartError] = useState<string | null>(null);
   const colors = useCssVars(
     [...series.map((s) => `--${s.colorVar}`), '--chart-grid', '--text-muted', '--border'],
@@ -203,7 +203,7 @@ export function TrendChart({
     const muted = colors['--text-muted'];
     const borderColor = colors['--border'];
 
-    const buildOptions = (width: number): uPlot.Options => ({
+    const buildOptions = (width: number, height: number): uPlot.Options => ({
       width,
       height,
       series: [
@@ -297,21 +297,21 @@ export function TrendChart({
       },
     });
 
-    const width = Math.max(200, box.clientWidth);
+    const width = box.clientWidth || 600;
+    const height = box.clientHeight || 220;
 
     let u: uPlot;
     try {
-      u = new uPlot(buildOptions(width), buildData(), box);
+      u = new uPlot(buildOptions(width, height), buildData(), box);
     } catch (e) {
       setChartError((e as Error).message);
       return;
     }
     uRef.current = u;
 
-    const ro = new ResizeObserver(() => {
-      const w = Math.max(200, box.clientWidth);
-      u.setSize({ width: w, height });
-    });
+    const measure = () => setBoxSize({ w: box.clientWidth, h: box.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(box);
 
     return () => {
@@ -320,7 +320,15 @@ export function TrendChart({
       uRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesKey, height, hasData, chartError, colorsKey]);
+  }, [seriesKey, hasData, chartError, colorsKey]);
+
+  // panel resized: refit the existing instance (no re-creation)
+  useEffect(() => {
+    const u = uRef.current;
+    if (u && boxSize.w > 0 && boxSize.h > 0) {
+      u.setSize({ width: boxSize.w, height: boxSize.h });
+    }
+  }, [boxSize]);
 
   // tick updates: push new data into the existing instance. NOTE: do NOT
   // call u.redraw() afterwards — in uPlot 1.6.x redraw() is
@@ -335,7 +343,7 @@ export function TrendChart({
   }, [ticks]);
 
   return (
-    <div>
+    <div className="chart-root">
       <div className="chart-legend">
         {series.map((s) => (
           <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -347,12 +355,12 @@ export function TrendChart({
       {chartError ? (
         <span className="muted">chart unavailable: {chartError}</span>
       ) : !hasData ? (
-        <div className="chart-empty" style={{ height }}>
+        <div className="chart-empty" style={{ flex: 1 }}>
           {ticks.length === 0 ? 'no data collected yet' : 'no values in this window'}
         </div>
       ) : (
-        <div style={{ position: 'relative' }}>
-          <div ref={boxRef} className="chart-box" style={{ height }} />
+        <div className="chart-stage">
+          <div ref={boxRef} className="chart-box" />
           <div ref={tipRef} className="chart-tip" style={{ display: 'none' }} />
         </div>
       )}

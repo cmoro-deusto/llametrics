@@ -46,7 +46,9 @@ const BUSY_SERIES: ChartSeriesDef[] = [
 
 export interface WidgetMeta {
   title: string;
-  span: 3 | 4 | 6 | 12;
+  /** default size in grid units (12 columns, fixed-height rows) */
+  w: number;
+  h: number;
 }
 
 export interface WidgetRenderProps {
@@ -55,7 +57,7 @@ export interface WidgetRenderProps {
 
 export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetRenderProps) => ReactNode }> = {
   'kpi:predicted-tok-s': {
-    meta: { title: 'Generation throughput', span: 3 },
+    meta: { title: 'Generation throughput', w: 2, h: 2 },
     render: ({ ticks }) => {
       const dash = useDashboard();
       const fmt = useFmt();
@@ -80,7 +82,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     },
   },
   'kpi:prompt-tok-s': {
-    meta: { title: 'Prompt throughput', span: 3 },
+    meta: { title: 'Prompt throughput', w: 2, h: 2 },
     render: ({ ticks }) => {
       const dash = useDashboard();
       const fmt = useFmt();
@@ -118,7 +120,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     },
   },
   'kpi:session-gen-tok-s': {
-    meta: { title: 'Session generation rate', span: 3 },
+    meta: { title: 'Session generation rate', w: 2, h: 2 },
     render: () => {
       const dash = useDashboard();
       return (
@@ -134,7 +136,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     },
   },
   'kpi:cache-hit-rate': {
-    meta: { title: 'Prompt cache hit rate', span: 3 },
+    meta: { title: 'Prompt cache hit rate', w: 2, h: 2 },
     render: () => {
       const dash = useDashboard();
       return (
@@ -150,7 +152,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     },
   },
   'kpi:spec-accept-rate': {
-    meta: { title: 'Speculative accept rate', span: 3 },
+    meta: { title: 'Speculative accept rate', w: 2, h: 2 },
     render: () => {
       const dash = useDashboard();
       const d = dash.lastTick?.derived;
@@ -171,7 +173,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     },
   },
   'kpi:requests-processing': {
-    meta: { title: 'Requests in flight', span: 3 },
+    meta: { title: 'Requests in flight', w: 2, h: 2 },
     render: () => (
       <KpiCard
         label="Requests in flight"
@@ -182,7 +184,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     ),
   },
   'kpi:requests-deferred': {
-    meta: { title: 'Requests deferred', span: 3 },
+    meta: { title: 'Requests deferred', w: 2, h: 2 },
     render: () => (
       <KpiCard
         label="Requests deferred"
@@ -194,48 +196,48 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
   },
 
   'chart:tok-s': {
-    meta: { title: 'Throughput (tok/s)', span: 6 },
+    meta: { title: 'Throughput (tok/s)', w: 6, h: 4 },
     render: ({ ticks }) => (
       <TrendChart ticks={ticks} series={TOK_S_SERIES} unit="rate" />
     ),
   },
   'chart:requests': {
-    meta: { title: 'Requests', span: 6 },
+    meta: { title: 'Requests', w: 6, h: 3 },
     render: ({ ticks }) => <TrendChart ticks={ticks} series={REQUESTS_SERIES} />,
   },
   'chart:cache-hit-rate': {
-    meta: { title: 'Prompt cache hit rate', span: 6 },
+    meta: { title: 'Prompt cache hit rate', w: 6, h: 3 },
     render: ({ ticks }) => (
       <TrendChart ticks={ticks} series={CACHE_SERIES} unit="percent" />
     ),
   },
   'chart:spec-accept-rate': {
-    meta: { title: 'Speculative accept rate', span: 6 },
+    meta: { title: 'Speculative accept rate', w: 6, h: 3 },
     render: ({ ticks }) => (
       <TrendChart ticks={ticks} series={SPEC_SERIES} unit="percent" />
     ),
   },
   'chart:busy-slots': {
-    meta: { title: 'Busy slots per decode', span: 6 },
+    meta: { title: 'Busy slots per decode', w: 6, h: 3 },
     render: ({ ticks }) => <TrendChart ticks={ticks} series={BUSY_SERIES} />,
   },
 
   models: {
-    meta: { title: 'Models', span: 6 },
+    meta: { title: 'Models', w: 4, h: 4 },
     render: () => {
       const dash = useDashboard();
       return <ModelsCard models={dash.models} fmt={useFmt()} />;
     },
   },
   slots: {
-    meta: { title: 'Slots', span: 6 },
+    meta: { title: 'Slots', w: 4, h: 4 },
     render: () => {
       const dash = useDashboard();
       return <SlotsCard slots={dash.slots} fmt={useFmt()} />;
     },
   },
   counters: {
-    meta: { title: 'Counters (since server start)', span: 12 },
+    meta: { title: 'Counters (since server start)', w: 12, h: 3 },
     render: () => {
       const dash = useDashboard();
       return <CountersCard counters={dash.counters ?? null} specPerPos={dash.specPerPos} fmt={useFmt()} />;

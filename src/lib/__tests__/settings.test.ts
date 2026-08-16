@@ -51,16 +51,24 @@ describe('sanitizeSettings', () => {
     expect(DEFAULT_SETTINGS.widgetOrder).toEqual([...DEFAULT_WIDGET_ORDER]);
   });
 
-  it('sanitizes widget span overrides: clamps to 1..12, rounds, drops junk', () => {
+  it('sanitizes widget layout overrides: clamps sizes/positions, drops junk', () => {
     const out = sanitizeSettings({
-      widgetSpans: {
-        'kpi:prompt-tok-s': 5.4,
-        'chart:tok-s': 99,
-        models: 0,
-        slots: 'wide',
+      widgetLayout: {
+        'kpi:prompt-tok-s': { w: 5.4, h: -2, x: -3, y: 200 },
+        'chart:tok-s': { w: 99, h: 0.6 },
+        models: 'wide',
+        slots: { junk: 1 },
       },
     });
-    expect(out.widgetSpans).toEqual({ 'kpi:prompt-tok-s': 5, 'chart:tok-s': 12, models: 1 });
-    expect(sanitizeSettings({}).widgetSpans).toEqual({});
+    expect(out.widgetLayout).toEqual({
+      'kpi:prompt-tok-s': { w: 5, h: 1, x: 0, y: 100 },
+      'chart:tok-s': { w: 12, h: 1 },
+    });
+    expect(sanitizeSettings({}).widgetLayout).toEqual({});
+  });
+
+  it('migrates legacy column-only spans (widgetSpans) to layout entries', () => {
+    const out = sanitizeSettings({ widgetSpans: { models: 6, slots: 'junk' } });
+    expect(out.widgetLayout).toEqual({ models: { w: 6 } });
   });
 });

@@ -1,6 +1,4 @@
-import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { SortableContext, arrayMove, rectSortingStrategy } from '@dnd-kit/sortable';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { settingsStore, useSettings } from './lib/settings';
 import {
   dashboard,
@@ -13,7 +11,18 @@ import { TopBar } from './components/TopBar';
 import { SettingsModal } from './components/SettingsModal';
 import { Onboard } from './components/Onboard';
 import { SortableWidget } from './widgets/WidgetShell';
-import { useActiveTicks } from './widgets/registry';
+import { useActiveTicks, WIDGETS } from './widgets/registry';
+import {
+  computeLayout,
+  computeMobileLayout,
+  GAP,
+  itemPx,
+  ROW_H,
+  type DragPin,
+  type LayoutOverride,
+  type Placed,
+  type WidgetSize,
+} from './lib/layout';
 
 function Banner() {
   const dash = useDashboard();
@@ -29,9 +38,24 @@ function Banner() {
   );
 }
 
+function useMobileBreakpoint(): boolean {
+  const [mobile, setMobile] = useState(
+    () => window.matchMedia('(max-width: 600px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 600px)');
+    const onChange = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return mobile;
+}
+
 export default function App() {
   const settings = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preview, setPreview] = useState<DragPin | null>(null);
+  const mobile = useMobileBreakpoint();
   const ticks = useActiveTicks(settings);
 
   // theme
@@ -57,21 +81,49 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [settingsOpen]);
 
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
-    useSensor(KeyboardSensor),
+  // default sizes from the widget catalog
+  const defaults = useMemo(() => {
+    const d: Record<string, WidgetSize> = {};
+    for (const [id, def] of Object.entries(WIDGETS)) d[id] = { w: def.meta.w, h: def.meta.h };
+    return d;
+  }, []);
+
+  // visible widgets in display order (hidden ones free up their cells)
+  const order = useMemo(
+    () => settings.widgetOrder.filter((id) => WIDGETS[id] && !settings.widgetHidden[id]),
+    [settings.widgetOrder, settings.widgetHidden],
   );
 
-  const onDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const order = settingsStore.get().widgetOrder;
-    const from = order.indexOf(String(active.id));
-    const to = order.indexOf(String(over.id));
-    if (from === -1 || to === -1) return;
-    settingsStore.set({ widgetOrder: arrayMove(order, from, to) });
-  };
+  const layout: Record<string, Placed> = useMemo(
+    () =>
+      mobile
+        ? computeMobileLayout(order, defaults, settings.widgetLayout)
+        : computeLayout(order, defaults, settings.widgetLayout, preview),
+    [order, defaults, settings.widgetLayout, preview, mobile],
+  );
+
+  // board sizing (absolute item layout)
+  const boardRef = useRef<HTMLElement | null>(null);
+  const [boardW, setBoardW] = useState(0);
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBoardW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [settings.baseUrl]);
+
+  const rows = useMemo(
+    () => Math.max(1, ...Object.values(layout).map((p) => p.y + p.h)),
+    [layout],
+  );
+  const boardH = rows * (ROW_H + GAP) - GAP;
+
+  const commitLayout = useCallback((pin: DragPin) => {
+    const cur = settingsStore.get().widgetLayout;
+    const next: LayoutOverride = { w: pin.w, h: pin.h, x: pin.x, y: pin.y };
+    settingsStore.set({ widgetLayout: { ...cur, [pin.id]: next } });
+  }, []);
 
   if (settings.baseUrl === '') {
     return (
@@ -87,15 +139,25 @@ export default function App() {
     <>
       <TopBar onOpenSettings={() => setSettingsOpen(true)} />
       <Banner />
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={settings.widgetOrder} strategy={rectSortingStrategy}>
-          <main className="grid">
-            {settings.widgetOrder.map((id) => (
-              <SortableWidget key={id} id={id} ticks={ticks} />
-            ))}
-          </main>
-        </SortableContext>
-      </DndContext>
+      <main className="board" ref={boardRef} style={{ height: boardH }}>
+        {order.map((id) => {
+          const pos = layout[id];
+          if (!pos) return null;
+          return (
+            <SortableWidget
+              key={id}
+              id={id}
+              pos={pos}
+              px={itemPx(pos, boardW)}
+              ticks={ticks}
+              interactive={!mobile}
+              isPreviewing={preview?.id === id}
+              onPreview={setPreview}
+              onCommit={commitLayout}
+            />
+          );
+        })}
+      </main>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </>
   );
