@@ -50,4 +50,17 @@ describe('sanitizeSettings', () => {
   it('defaults match the shipped catalog', () => {
     expect(DEFAULT_SETTINGS.widgetOrder).toEqual([...DEFAULT_WIDGET_ORDER]);
   });
+
+  it('sanitizes widget span overrides: clamps to 1..12, rounds, drops junk', () => {
+    const out = sanitizeSettings({
+      widgetSpans: {
+        'kpi:prompt-tok-s': 5.4,
+        'chart:tok-s': 99,
+        models: 0,
+        slots: 'wide',
+      },
+    });
+    expect(out.widgetSpans).toEqual({ 'kpi:prompt-tok-s': 5, 'chart:tok-s': 12, models: 1 });
+    expect(sanitizeSettings({}).widgetSpans).toEqual({});
+  });
 });

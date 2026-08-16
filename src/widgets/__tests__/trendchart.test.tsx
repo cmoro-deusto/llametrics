@@ -30,7 +30,7 @@ const { constructions, FakeUPlot } = vi.hoisted(() => {
 });
 vi.mock('uplot', () => ({ default: FakeUPlot }));
 
-import { TrendChart } from '../TrendChart';
+import { TrendChart, nearestXIndex } from '../TrendChart';
 import { WIDGETS } from '../registry';
 import type { Tick } from '../../lib/history';
 
@@ -86,6 +86,17 @@ function makeTicks(n: number, startT = Date.now() - n * 2000): Tick[] {
 
 afterEach(() => {
   constructions.length = 0;
+});
+
+describe('nearestXIndex', () => {
+  it('finds the nearest value in a non-decreasing column (duplicates allowed)', () => {
+    const x = [1, 2, 2, 3, 5];
+    expect(nearestXIndex(x, 0.4)).toBe(0);
+    expect(nearestXIndex(x, 2.4)).toBe(2);
+    expect(nearestXIndex(x, 2.6)).toBe(3);
+    expect(nearestXIndex(x, 99)).toBe(4);
+    expect(nearestXIndex([7], 100)).toBe(0);
+  });
 });
 
 describe('chart data path', () => {

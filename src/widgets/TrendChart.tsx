@@ -6,6 +6,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Tick } from '../lib/history';
+import { formatCount, formatRate } from '../lib/format';
 import { cssVar, useCssVars } from '../hooks/useCssVars';
 
 export interface ChartSeriesDef {
@@ -54,6 +55,21 @@ function expandSteps(
   return [x, ...cols];
 }
 
+/**
+ * Index of the nearest x value in a non-decreasing column (step expansion
+ * leaves duplicate x entries, so a plain bisect would be ambiguous).
+ */
+export function nearestXIndex(x: number[], val: number): number {
+  let lo = 0;
+  let hi = x.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (x[mid] < val) lo = mid;
+    else hi = mid;
+  }
+  return val - x[lo] <= x[hi] - val ? lo : hi;
+}
+
 function withAlpha(color: string, alpha: number): string {
   // handle #rgb/#rrggbb and rgb()/rgba()
   if (color.startsWith('#')) {
@@ -75,13 +91,17 @@ export function TrendChart({
   series,
   ticks,
   height = 220,
+  unit = 'count',
 }: {
   series: ChartSeriesDef[];
   ticks: Tick[];
   height?: number;
+  /** how to format tooltip values */
+  unit?: 'rate' | 'percent' | 'count';
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const uRef = useRef<uPlot | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const [chartError, setChartError] = useState<string | null>(null);
   const colors = useCssVars(
     [...series.map((s) => `--${s.colorVar}`), '--chart-grid', '--text-muted', '--border'],
@@ -110,6 +130,17 @@ export function TrendChart({
     const v = s.source === 'gauges' ? t.gauges[s.key] : t.derived[s.key];
     if (v === undefined || v === null || !Number.isFinite(v)) return null;
     return v * (s.scale ?? 1);
+  };
+
+  const formatValue = (v: number): string => {
+    switch (unit) {
+      case 'rate':
+        return `${formatRate(v)} tok/s`;
+      case 'percent':
+        return `${v.toFixed(1)}%`;
+      default:
+        return formatCount(v);
+    }
   };
 
   /**
@@ -217,7 +248,53 @@ export function TrendChart({
       ],
       padding: [8, 8, 0, 4],
       legend: { show: false },
-      cursor: { drag: { x: false, y: false } },
+      cursor: {
+        drag: { x: false, y: false },
+        // prox >= 0 enables cursor focus (required for hover points);
+        // 1e6 = always within proximity
+        focus: { prox: 1e6 },
+        points: { show: true, size: 5, width: 2 },
+      },
+      hooks: {
+        // hover tooltip: time + one row per series at the nearest point
+        setCursor: [
+          (u: uPlot) => {
+            const box = boxRef.current;
+            const tip = tipRef.current;
+            if (!box || !tip) return;
+            const { left, top } = u.cursor;
+            const xCol = u.data[0] as number[];
+            if (left == null || top == null || xCol.length === 0) {
+              tip.style.display = 'none';
+              return;
+            }
+            const xVal = u.posToVal(left, 'x');
+            const i = nearestXIndex(xCol, xVal);
+            let rows = '';
+            for (let si = 1; si < u.data.length; si++) {
+              const v = u.data[si][i];
+              if (v == null || !Number.isFinite(v)) continue;
+              const color = (u.series[si] as { _stroke?: string })._stroke ?? '';
+              rows +=
+                `<div class="chart-tip-row"><span class="chart-tip-dot" style="background:${color}"></span>` +
+                `<span class="chart-tip-label">${u.series[si].label}</span><b>${formatValue(v as number)}</b></div>`;
+            }
+            if (!rows) {
+              tip.style.display = 'none';
+              return;
+            }
+            const time = new Date(xVal * 1000).toLocaleTimeString('en-GB', { hour12: false });
+            tip.innerHTML = `<div class="chart-tip-time">${time}</div>${rows}`;
+            tip.style.display = 'block';
+            const tw = tip.offsetWidth;
+            const th = tip.offsetHeight;
+            let px = left + 14;
+            if (px + tw > box.clientWidth - 4) px = left - tw - 14;
+            tip.style.left = `${Math.max(4, px)}px`;
+            tip.style.top = `${Math.max(4, Math.min(top + 14, box.clientHeight - th - 4))}px`;
+          },
+        ],
+      },
     });
 
     const width = Math.max(200, box.clientWidth);
@@ -274,7 +351,10 @@ export function TrendChart({
           {ticks.length === 0 ? 'no data collected yet' : 'no values in this window'}
         </div>
       ) : (
-        <div ref={boxRef} className="chart-box" style={{ height }} />
+        <div style={{ position: 'relative' }}>
+          <div ref={boxRef} className="chart-box" style={{ height }} />
+          <div ref={tipRef} className="chart-tip" style={{ display: 'none' }} />
+        </div>
       )}
     </div>
   );

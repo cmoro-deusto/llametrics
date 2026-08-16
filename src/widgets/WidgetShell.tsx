@@ -5,10 +5,12 @@
  */
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { ComponentType } from 'react';
+import { useRef, useState, type ComponentType, type PointerEvent as ReactPointerEvent } from 'react';
 import { settingsStore, useSettings } from '../lib/settings';
 import type { Tick } from '../lib/history';
 import { WIDGETS } from './registry';
+
+const GRID_GAP = 12; // must match .grid in styles.css
 
 export function SortableWidget({ id, ticks }: { id: string; ticks: Tick[] }) {
   const settings = useSettings();
@@ -17,6 +19,41 @@ export function SortableWidget({ id, ticks }: { id: string; ticks: Tick[] }) {
   });
   const def = WIDGETS[id];
   const hidden = settings.widgetHidden[id];
+  // user-resized span (persisted) wins over the widget's default
+  const span = settings.widgetSpans[id] ?? def.meta.span;
+  const spanRef = useRef(span);
+  spanRef.current = span;
+  const resizeRef = useRef<{ startX: number; startSpan: number; unit: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
+
+  const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const grid = e.currentTarget.closest('.grid');
+    if (!(grid instanceof HTMLElement)) return;
+    e.preventDefault();
+    // width gained per extra column, including the gap
+    const unit = (grid.clientWidth - 11 * GRID_GAP) / 12 + GRID_GAP;
+    resizeRef.current = { startX: e.clientX, startSpan: spanRef.current, unit };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResizing(true);
+  };
+
+  const moveResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    const next = Math.min(12, Math.max(1, Math.round(r.startSpan + (e.clientX - r.startX) / r.unit)));
+    if (next !== spanRef.current) {
+      settingsStore.set({ widgetSpans: { ...settingsStore.get().widgetSpans, [id]: next } });
+    }
+  };
+
+  const endResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!resizeRef.current) return;
+    resizeRef.current = null;
+    setResizing(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
 
   if (!def || hidden) return null;
 
@@ -29,7 +66,7 @@ export function SortableWidget({ id, ticks }: { id: string; ticks: Tick[] }) {
   return (
     <div
       ref={setNodeRef}
-      className={`widget span-${def.meta.span}${isDragging ? ' dragging' : ''}`}
+      className={`widget span-${span}${isDragging ? ' dragging' : ''}`}
       style={style}
     >
       <div className="widget-head">
@@ -63,6 +100,15 @@ export function SortableWidget({ id, ticks }: { id: string; ticks: Tick[] }) {
           ✕
         </button>
       </div>
+      <div
+        className={`resize-handle${resizing ? ' active' : ''}`}
+        title="Drag to resize"
+        aria-label={`Resize ${def.meta.title}`}
+        onPointerDown={startResize}
+        onPointerMove={moveResize}
+        onPointerUp={endResize}
+        onPointerCancel={endResize}
+      />
       <Body ticks={ticks} />
     </div>
   );

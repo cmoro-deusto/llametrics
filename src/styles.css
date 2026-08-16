@@ -233,6 +233,7 @@ code {
 }
 
 .widget {
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -248,40 +249,93 @@ code {
   opacity: 0.45;
 }
 
+/* user-resizable spans (drag the panel's right edge) */
+.span-1 {
+  grid-column: span 1;
+}
+.span-2 {
+  grid-column: span 2;
+}
 .span-3 {
   grid-column: span 3;
 }
 .span-4 {
   grid-column: span 4;
 }
+.span-5 {
+  grid-column: span 5;
+}
 .span-6 {
   grid-column: span 6;
+}
+.span-7 {
+  grid-column: span 7;
+}
+.span-8 {
+  grid-column: span 8;
+}
+.span-9 {
+  grid-column: span 9;
+}
+.span-10 {
+  grid-column: span 10;
+}
+.span-11 {
+  grid-column: span 11;
 }
 .span-12 {
   grid-column: span 12;
 }
 
 @media (max-width: 1100px) {
+  .span-1,
+  .span-2,
   .span-3 {
     grid-column: span 4;
   }
 }
 
 @media (max-width: 860px) {
+  .span-1,
+  .span-2,
   .span-3,
   .span-4,
-  .span-6 {
+  .span-5 {
     grid-column: span 6;
   }
 }
 
 @media (max-width: 600px) {
+  .span-1,
+  .span-2,
   .span-3,
   .span-4,
+  .span-5,
   .span-6,
+  .span-7,
+  .span-8,
+  .span-9,
+  .span-10,
+  .span-11,
   .span-12 {
     grid-column: span 12;
   }
+}
+
+.resize-handle {
+  position: absolute;
+  top: 10px;
+  right: -5px;
+  bottom: 10px;
+  width: 10px;
+  cursor: col-resize;
+  border-radius: 5px;
+  touch-action: none;
+  z-index: 3;
+}
+.resize-handle:hover,
+.resize-handle.active {
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
 }
 
 .widget-head {
@@ -401,6 +455,40 @@ code {
   font-size: 12px;
   border: 1px dashed var(--border);
   border-radius: 6px;
+}
+
+/* hover tooltip (uPlot setCursor hook) */
+.chart-tip {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  min-width: 120px;
+  padding: 6px 9px;
+  background: var(--panel-hover);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+.chart-tip-time {
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-tip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.chart-tip-label {
+  color: var(--text-muted);
 }
 
 /* ---------- model cards ---------- */

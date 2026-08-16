@@ -195,7 +195,9 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
 
   'chart:tok-s': {
     meta: { title: 'Throughput (tok/s)', span: 6 },
-    render: ({ ticks }) => <TrendChart ticks={ticks} series={TOK_S_SERIES} />,
+    render: ({ ticks }) => (
+      <TrendChart ticks={ticks} series={TOK_S_SERIES} unit="rate" />
+    ),
   },
   'chart:requests': {
     meta: { title: 'Requests', span: 6 },
@@ -203,11 +205,15 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
   },
   'chart:cache-hit-rate': {
     meta: { title: 'Prompt cache hit rate', span: 6 },
-    render: ({ ticks }) => <TrendChart ticks={ticks} series={CACHE_SERIES} />,
+    render: ({ ticks }) => (
+      <TrendChart ticks={ticks} series={CACHE_SERIES} unit="percent" />
+    ),
   },
   'chart:spec-accept-rate': {
     meta: { title: 'Speculative accept rate', span: 6 },
-    render: ({ ticks }) => <TrendChart ticks={ticks} series={SPEC_SERIES} />,
+    render: ({ ticks }) => (
+      <TrendChart ticks={ticks} series={SPEC_SERIES} unit="percent" />
+    ),
   },
   'chart:busy-slots': {
     meta: { title: 'Busy slots per decode', span: 6 },

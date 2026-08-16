@@ -35,6 +35,8 @@ export interface Settings {
   widgetOrder: string[];
   /** hidden widget ids */
   widgetHidden: Record<string, boolean>;
+  /** per-widget grid span overrides (1..12 of the 12-column grid) */
+  widgetSpans: Record<string, number>;
 }
 
 const STORAGE_KEY = 'llametrics.settings.v1';
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   numberFormat: 'human',
   widgetOrder: [...DEFAULT_WIDGET_ORDER],
   widgetHidden: {},
+  widgetSpans: {},
 };
 
 export const CHART_WINDOW_PRESETS_MIN = [5, 15, 60, 360, 1440, 4320] as const;
@@ -119,6 +122,15 @@ export function sanitizeSettings(input: unknown): Settings {
       ? Math.min(4320, Math.max(1, Math.round(o.chartWindowMin)))
       : d.chartWindowMin;
 
+  const widgetSpans: Record<string, number> = {};
+  if (typeof o.widgetSpans === 'object' && o.widgetSpans !== null) {
+    for (const [k, v] of Object.entries(o.widgetSpans as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        widgetSpans[k] = Math.min(12, Math.max(1, Math.round(v)));
+      }
+    }
+  }
+
   return {
     baseUrl: typeof o.baseUrl === 'string' ? o.baseUrl : d.baseUrl,
     endpoints,
@@ -131,6 +143,7 @@ export function sanitizeSettings(input: unknown): Settings {
       typeof o.widgetHidden === 'object' && o.widgetHidden !== null
         ? (o.widgetHidden as Record<string, boolean>)
         : {},
+    widgetSpans,
   };
 }
 
