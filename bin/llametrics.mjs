@@ -18,7 +18,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { platform } from 'node:os';
+import { networkInterfaces, platform } from 'node:os';
 
 const here = fileURLToPath(import.meta.url);
 const root = resolve(dirname(here), '..');
@@ -116,10 +116,25 @@ const server = createServer((req, res) => {
   res.end(body);
 });
 
+function lanAddresses() {
+  const out = [];
+  for (const list of Object.values(networkInterfaces())) {
+    for (const a of list ?? []) {
+      if (a.family === 'IPv4' && !a.internal) out.push(a.address);
+    }
+  }
+  return out;
+}
+
 server.listen(port, host, () => {
-  const shown = host === '0.0.0.0' ? '127.0.0.1' : host;
+  const shown = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
   const url = `http://${shown}:${port}/`;
   console.log(`llametrics ${pkg.version} serving dist/ → ${url}`);
+  if (host === '0.0.0.0' || host === '::') {
+    for (const ip of lanAddresses()) {
+      console.log(`  on this network → http://${ip}:${port}/`);
+    }
+  }
   if (baseUrl) console.log(`  prefilling llama-server base URL: ${baseUrl}`);
   console.log('  ctrl+c to stop');
   if (openBrowser) {
