@@ -169,7 +169,9 @@ export function TrendChart({
    * Dense (more ticks than ~5-6px buckets): bin to one point per bucket —
    * bar series take the bucket max (spike-preserving), step/fill series
    * take the bucket's last value (equivalent to holding), plain lines the
-   * max. Without binning, 15 min of 2s ticks would be sub-pixel bars/points.
+   * max. fill series then forward-fill empty buckets so their line stays
+   * joined (a null bucket is a line break in uPlot). Without binning,
+   * 15 min of 2s ticks would be sub-pixel bars/points.
    */
   const buildData = (): [number[], ...(number | null)[][]] => {
     const box = boxRef.current;
@@ -202,6 +204,13 @@ export function TrendChart({
             cols[si][cols[si].length - 1] = v;
           }
         });
+      }
+      // hold the last measured value across buckets that had no sample at
+      // all (same semantics as the sparse path's forwardFill): without this
+      // a fill series breaks its line at every empty bucket — idle
+      // stretches between prompts read as gaps in the chart
+      for (let si = 0; si < series.length; si++) {
+        if (series[si].fill === 'prev') cols[si] = forwardFill(cols[si]);
       }
       return [x, ...cols];
     }
