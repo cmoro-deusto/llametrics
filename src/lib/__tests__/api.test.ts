@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { buildModelCards, normalizeBaseUrl, type ModelsResponse } from '../api';
+import { buildModelCards, normalizeBaseUrl, slotNextToken, type ModelsResponse, type SlotInfo } from '../api';
 
 const fixtureDir = fileURLToPath(new URL('../__fixtures__', import.meta.url));
 const LIVE_MODELS = JSON.parse(readFileSync(join(fixtureDir, 'models-live.json'), 'utf8')) as ModelsResponse;
@@ -16,6 +16,18 @@ describe('normalizeBaseUrl', () => {
   it('empty stays empty', () => {
     expect(normalizeBaseUrl('')).toBe('');
     expect(normalizeBaseUrl('   ')).toBe('');
+  });
+});
+
+describe('slotNextToken', () => {
+  it('normalizes object and array shapes', () => {
+    const obj = { has_next_token: false, has_new_line: false, n_remain: 0, n_decoded: 42 };
+    const asObj: SlotInfo = { id: 0, next_token: obj } as SlotInfo;
+    const asArr: SlotInfo = { id: 0, next_token: [obj] } as SlotInfo;
+    const missing: SlotInfo = { id: 0 } as SlotInfo;
+    expect(slotNextToken(asObj)).toBe(obj);
+    expect(slotNextToken(asArr)).toBe(obj);
+    expect(slotNextToken(missing)).toBeNull();
   });
 });
 

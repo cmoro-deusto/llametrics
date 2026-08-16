@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTERS, computeDerived, computeSinceStart, downsampleMinMax, rollingRate } from '../metrics';
+import {
+  COUNTERS,
+  computeDerived,
+  computeSinceStart,
+  downsampleMinMax,
+  liveSlotRate,
+  rollingRate,
+  type SlotLiveSample,
+} from '../metrics';
 
 const base = {
   [COUNTERS.promptTokens]: 1000,
@@ -118,6 +126,58 @@ describe('rollingRate', () => {
   it('nulls on counter reset inside the window', () => {
     const s = [at(0, 1000), at(10, 500)]; // restart
     expect(rollingRate(s, c, 60000)).toBeNull();
+  });
+});
+
+describe('liveSlotRate', () => {
+  const s = (
+    id: number,
+    processing: boolean,
+    nDecoded: number,
+    nPrompt: number,
+  ): SlotLiveSample => ({ id, processing, nDecoded, nPromptProcessed: nPrompt });
+
+  it('rates tokens decoded while the slot was already processing', () => {
+    // 100 tokens in 2s on slot 0
+    const prev = [s(0, true, 100, 50), s(1, false, 0, 0)];
+    const cur = [s(0, true, 200, 60), s(1, false, 0, 0)];
+    expect(liveSlotRate(prev, cur, 2, 'nDecoded')).toEqual({ rate: 50, active: true });
+  });
+
+  it('sums across concurrently processing slots', () => {
+    const prev = [s(0, true, 100, 0), s(1, true, 10, 0)];
+    const cur = [s(0, true, 200, 0), s(1, true, 26, 0)];
+    expect(liveSlotRate(prev, cur, 2, 'nDecoded').rate).toBeCloseTo(58, 5); // 100+16 over 2s
+  });
+
+  it('skips slots that started mid-interval (stale baseline)', () => {
+    const prev = [s(0, false, 0, 0)];
+    const cur = [s(0, true, 50, 0)];
+    expect(liveSlotRate(prev, cur, 2, 'nDecoded')).toEqual({ rate: null, active: true });
+  });
+
+  it('skips slots that finished mid-interval (no overcount)', () => {
+    const prev = [s(0, true, 100, 0)];
+    const cur = [s(0, false, 300, 0)];
+    expect(liveSlotRate(prev, cur, 2, 'nDecoded').rate).toBeNull();
+  });
+
+  it('skips negative deltas (task switched mid-interval)', () => {
+    const prev = [s(0, true, 900, 0)]; // late in task A
+    const cur = [s(0, true, 5, 0)]; // early in task B
+    expect(liveSlotRate(prev, cur, 2, 'nDecoded').rate).toBeNull();
+  });
+
+  it('reports prompt rate from n_prompt_tokens_processed', () => {
+    const prev = [s(0, true, 0, 1000)];
+    const cur = [s(0, true, 0, 1104)];
+    expect(liveSlotRate(prev, cur, 2, 'nPromptProcessed').rate).toBeCloseTo(52, 5);
+  });
+
+  it('nulls on missing samples or non-positive dt', () => {
+    expect(liveSlotRate(null, [s(0, true, 10, 0)], 2, 'nDecoded').rate).toBeNull();
+    expect(liveSlotRate([s(0, true, 10, 0)], [s(0, true, 20, 0)], 0, 'nDecoded').rate).toBeNull();
+    expect(liveSlotRate([], [], 2, 'nDecoded')).toEqual({ rate: null, active: false });
   });
 });
 

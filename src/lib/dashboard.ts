@@ -16,6 +16,7 @@ import {
   fetchModels,
   fetchSlots,
   normalizeBaseUrl,
+  slotNextToken,
   type ModelCardData,
   type SlotInfo,
 } from './api';
@@ -25,7 +26,9 @@ import {
   GAUGES,
   SPEC_PER_POS,
   computeDerived,
+  liveSlotRate,
   type CounterMap,
+  type SlotLiveSample,
 } from './metrics';
 import { indexMetrics, parseMetrics } from './prometheus';
 import { settingsStore } from './settings';
@@ -79,6 +82,8 @@ class DashboardEngine {
   private inFlight = false;
   /** in-memory previous counters for delta math (seeded from history on start) */
   private prevCounters: CounterMap | null = null;
+  /** in-memory previous live slot sample (seeded from history on start) */
+  private prevSlots: SlotLiveSample[] | null = null;
   private prevT: number | null = null;
 
   // -- store plumbing ------------------------------------------------------
@@ -129,13 +134,10 @@ class DashboardEngine {
     }
     if (!urlChanged && !pollChanged) return;
     this.clearTimer();
-    if (url === '' || this.stopping) {
-      this.set({ ...INITIAL, status: 'idle' });
-      return;
-    }
     if (urlChanged) {
       // new server: no in-memory prev; derived deltas seed from its history
       this.prevCounters = null;
+      this.prevSlots = null;
       this.prevT = null;
       this.set({
         ...INITIAL,
@@ -217,13 +219,27 @@ class DashboardEngine {
           value: s.value,
         }));
 
+        // live per-slot sample: the only "as it happens" throughput signal
+        // (generation counters are only fed when a task ends)
+        const curSlots: SlotLiveSample[] | null =
+          slots !== null
+            ? slots.map((s) => ({
+                id: s.id,
+                processing: !!s.is_processing,
+                nDecoded: slotNextToken(s)?.n_decoded ?? 0,
+                nPromptProcessed: s.n_prompt_tokens_processed ?? 0,
+              }))
+            : null;
+
         // derived KPIs from the previous sample; after a page reload the
         // previous sample is the newest tick in persisted history
         let prev = this.prevCounters;
+        let prevS = this.prevSlots;
         let prevT = this.prevT;
         if (prev === null) {
           const lastTick = await historyStore.last(url).catch(() => null);
           prev = lastTick?.counters ?? null;
+          prevS = lastTick?.slots ?? null;
           prevT = lastTick?.t ?? null;
         }
         let derived: Tick['derived'] = {
@@ -232,6 +248,8 @@ class DashboardEngine {
           cacheHitRate: null,
           specAcceptRate: null,
           specTokensPerVerif: null,
+          liveGenTokS: null,
+          livePromptTokS: null,
         };
         if (prev && prevT !== null) {
           const dt = Math.max(0.25, (now - prevT) / 1000);
@@ -242,10 +260,19 @@ class DashboardEngine {
             cacheHitRate: d.cacheHitRate.value,
             specAcceptRate: d.specAcceptRate.value,
             specTokensPerVerif: d.specTokensPerVerif.value,
+            liveGenTokS: liveSlotRate(prevS, curSlots, dt, 'nDecoded').rate,
+            livePromptTokS: liveSlotRate(prevS, curSlots, dt, 'nPromptProcessed').rate,
           };
         }
 
-        const tick: Tick = { serverKey: url, t: now, gauges, counters, derived };
+        const tick: Tick = {
+          serverKey: url,
+          t: now,
+          gauges,
+          counters,
+          derived,
+          slots: curSlots ?? undefined,
+        };
         this.prevCounters = counters;
         this.prevT = now;
         void historyStore.append(tick).catch(() => undefined);

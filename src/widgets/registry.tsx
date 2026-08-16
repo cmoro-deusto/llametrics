@@ -7,7 +7,6 @@ import { useDashboard } from '../lib/dashboard';
 import { useTicks } from '../hooks/useTicks';
 import { COUNTERS, GAUGES, rollingRate } from '../lib/metrics';
 import { normalizeBaseUrl } from '../lib/api';
-import { formatRate } from '../lib/format';
 import { useSettings, type Settings } from '../lib/settings';
 import type { Tick } from '../lib/history';
 
@@ -35,19 +34,20 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     render: ({ ticks }) => {
       const dash = useDashboard();
       const fmt = useFmt();
-      const rolling = rollingRate(ticks, COUNTERS.tokensPredicted, ROLLING_MS);
-      const now = dash.gauges?.[GAUGES.predictedTokS];
+      // live rate from /slots diffs (updates every poll while a task runs);
+      // fall back to the 60s rolling counter rate when idle
+      const t = dash.lastTick;
+      const live = t?.derived.liveGenTokS ?? null;
+      const useLive = !!t?.slots?.some((s) => s.processing) && live !== null;
+      const value = useLive ? live : rollingRate(ticks, COUNTERS.tokensPredicted, ROLLING_MS);
       return (
         <KpiCard
           label="Generation throughput"
-          value={rolling}
+          value={value}
           unit="rate"
           fmt={fmt}
           sub={
-            <>
-              <span className="chip">60s rolling</span>
-              <span className="chip">now {formatRate(now, fmt)} tok/s</span>
-            </>
+            <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
           }
           note="collecting samples…"
         />
@@ -59,19 +59,18 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     render: ({ ticks }) => {
       const dash = useDashboard();
       const fmt = useFmt();
-      const rolling = rollingRate(ticks, COUNTERS.promptTokens, ROLLING_MS);
-      const now = dash.gauges?.[GAUGES.promptTokS];
+      const t = dash.lastTick;
+      const live = t?.derived.livePromptTokS ?? null;
+      const useLive = !!t?.slots?.some((s) => s.processing) && live !== null;
+      const value = useLive ? live : rollingRate(ticks, COUNTERS.promptTokens, ROLLING_MS);
       return (
         <KpiCard
           label="Prompt throughput"
-          value={rolling}
+          value={value}
           unit="rate"
           fmt={fmt}
           sub={
-            <>
-              <span className="chip">60s rolling</span>
-              <span className="chip">now {formatRate(now, fmt)} tok/s</span>
-            </>
+            <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
           }
           note="collecting samples…"
         />
@@ -160,8 +159,10 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       <TrendChart
         ticks={ticks}
         series={[
-          { key: GAUGES.predictedTokS, label: 'generation tok/s', colorVar: 'chart-1', source: 'gauges' },
-          { key: GAUGES.promptTokS, label: 'prompt tok/s', colorVar: 'chart-2', source: 'gauges' },
+          // live per-poll rates from /slots diffs — these move while a task
+          // runs; the /metrics gauges only spike when a task ENDS
+          { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived' },
+          { key: 'livePromptTokS', label: 'prompt (live)', colorVar: 'chart-2', source: 'derived' },
         ]}
       />
     ),

@@ -6,6 +6,8 @@
  * write). Charts downsample in memory at read time.
  */
 
+import type { SlotLiveSample } from './metrics';
+
 export interface Tick {
   serverKey: string;
   /** epoch ms */
@@ -16,6 +18,8 @@ export interface Tick {
   counters: Record<string, number>;
   /** derived KPIs for the interval ending at this tick */
   derived: Record<string, number | null>;
+  /** live per-slot counters (source for live throughput rates) */
+  slots?: SlotLiveSample[];
 }
 
 const DB_NAME = 'llametrics';

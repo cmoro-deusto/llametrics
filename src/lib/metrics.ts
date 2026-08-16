@@ -145,6 +145,55 @@ export function computeSinceStart(cur: CounterMap): SinceStartStats {
   return { genTokS, promptTokS, cacheHitRate, specTokensPerVerif };
 }
 
+/**
+ * Live per-slot sample taken from one /slots scrape. The /metrics
+ * generation counters are only fed when a task ENDS (slot reset), so the
+ * only "as it happens" throughput available over HTTP is diffing these
+ * live counters between scrapes — the same numbers the server's log
+ * prints as tg / tg_3s.
+ */
+export interface SlotLiveSample {
+  id: number;
+  processing: boolean;
+  nDecoded: number;
+  nPromptProcessed: number;
+}
+
+export interface LiveRateResult {
+  /** tokens/s over the sample interval, or null when no countable delta */
+  rate: number | null;
+  /** true when at least one slot is processing in the current sample */
+  active: boolean;
+}
+
+/**
+ * Live rate (tokens/s) from consecutive /slots scrapes. A slot only
+ * contributes when it was ALREADY processing in the previous sample —
+ * otherwise its counter is stale from the last task, or a new task
+ * started mid-interval (both would produce a bogus rate). Negative
+ * deltas (task switched mid-interval) are skipped.
+ */
+export function liveSlotRate(
+  prev: SlotLiveSample[] | null,
+  cur: SlotLiveSample[] | null,
+  dt: number,
+  field: 'nDecoded' | 'nPromptProcessed',
+): LiveRateResult {
+  const active = !!cur && cur.some((s) => s.processing);
+  if (!prev || !cur || !(dt > 0)) return { rate: null, active };
+  const prevById = new Map(prev.map((s) => [s.id, s]));
+  let tokens = 0;
+  for (const s of cur) {
+    if (!s.processing) continue;
+    const p = prevById.get(s.id);
+    if (!p || !p.processing) continue;
+    const d = s[field] - p[field];
+    if (d < 0) continue; // task switched mid-interval
+    tokens += d;
+  }
+  return { rate: tokens > 0 ? tokens / dt : null, active };
+}
+
 /** A sample carrying cumulative counters, newest last. */
 export interface RateSample {
   t: number;

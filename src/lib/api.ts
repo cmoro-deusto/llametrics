@@ -86,6 +86,14 @@ export interface SlotParams {
   [key: string]: number | boolean | string;
 }
 
+export interface SlotNextToken {
+  has_next_token: boolean;
+  has_new_line: boolean;
+  n_remain: number;
+  /** live generated-token count (server_slot_stats.n_gen), +1 per decoded token */
+  n_decoded: number;
+}
+
 export interface SlotInfo {
   id: number;
   n_ctx: number;
@@ -93,10 +101,20 @@ export interface SlotInfo {
   is_processing: boolean;
   id_task: number;
   n_prompt_tokens: number;
+  /** live processed-prompt-token count, +1 per prompt token */
   n_prompt_tokens_processed: number;
   n_prompt_tokens_cache: number;
   params: SlotParams;
+  /** object or single-element array depending on llama.cpp version */
+  next_token?: SlotNextToken | SlotNextToken[];
   [key: string]: unknown;
+}
+
+/** Normalize the version-dependent next_token shape. */
+export function slotNextToken(slot: SlotInfo): SlotNextToken | null {
+  const nt = slot.next_token;
+  if (nt === undefined) return null;
+  return Array.isArray(nt) ? nt[0] ?? null : nt;
 }
 
 export interface HealthResponse {
