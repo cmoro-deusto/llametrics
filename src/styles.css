@@ -24,8 +24,13 @@
   --error: #f85149;
   --info: #58a6ff;
 
-  /* chart palette (accent-aware first color) */
-  --chart-1: var(--accent);
+  /*
+   * chart palette — deliberately FIXED (not accent-derived): a user accent
+   * can be dark-on-dark (or light-on-light), and tying the primary series
+   * to it made whole charts unreadable. The accent still themes surfaces,
+   * buttons and highlights; data lines keep guaranteed contrast.
+   */
+  --chart-1: #4f8cff;
   --chart-2: #f0a35e;
   --chart-3: #8bd450;
   --chart-4: #e05c7a;
