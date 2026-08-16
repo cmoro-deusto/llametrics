@@ -5,10 +5,15 @@
 import type { ReactNode } from 'react';
 import { useDashboard } from '../lib/dashboard';
 import { useTicks } from '../hooks/useTicks';
-import { GAUGES } from '../lib/metrics';
+import { COUNTERS, GAUGES, rollingRate } from '../lib/metrics';
 import { normalizeBaseUrl } from '../lib/api';
+import { formatRate } from '../lib/format';
 import { useSettings, type Settings } from '../lib/settings';
 import type { Tick } from '../lib/history';
+
+/** headline throughput KPIs smooth over the last minute; the instantaneous
+ *  server gauge is kept visible as a "now" chip */
+const ROLLING_MS = 60_000;
 import { KpiCard } from './KpiCard';
 import { TrendChart } from './TrendChart';
 import { ModelsCard } from './ModelsCard';
@@ -27,27 +32,51 @@ export interface WidgetRenderProps {
 export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetRenderProps) => ReactNode }> = {
   'kpi:predicted-tok-s': {
     meta: { title: 'Generation throughput', span: 3 },
-    render: () => (
-      <KpiCard
-        label="Generation throughput"
-        value={useGauge(GAUGES.predictedTokS)}
-        unit="rate"
-        fmt={useFmt()}
-        sub={<span className="chip">instantaneous</span>}
-      />
-    ),
+    render: ({ ticks }) => {
+      const dash = useDashboard();
+      const fmt = useFmt();
+      const rolling = rollingRate(ticks, COUNTERS.tokensPredicted, ROLLING_MS);
+      const now = dash.gauges?.[GAUGES.predictedTokS];
+      return (
+        <KpiCard
+          label="Generation throughput"
+          value={rolling}
+          unit="rate"
+          fmt={fmt}
+          sub={
+            <>
+              <span className="chip">60s rolling</span>
+              <span className="chip">now {formatRate(now, fmt)} tok/s</span>
+            </>
+          }
+          note="collecting samples…"
+        />
+      );
+    },
   },
   'kpi:prompt-tok-s': {
     meta: { title: 'Prompt throughput', span: 3 },
-    render: () => (
-      <KpiCard
-        label="Prompt throughput"
-        value={useGauge(GAUGES.promptTokS)}
-        unit="rate"
-        fmt={useFmt()}
-        sub={<span className="chip">instantaneous</span>}
-      />
-    ),
+    render: ({ ticks }) => {
+      const dash = useDashboard();
+      const fmt = useFmt();
+      const rolling = rollingRate(ticks, COUNTERS.promptTokens, ROLLING_MS);
+      const now = dash.gauges?.[GAUGES.promptTokS];
+      return (
+        <KpiCard
+          label="Prompt throughput"
+          value={rolling}
+          unit="rate"
+          fmt={fmt}
+          sub={
+            <>
+              <span className="chip">60s rolling</span>
+              <span className="chip">now {formatRate(now, fmt)} tok/s</span>
+            </>
+          }
+          note="collecting samples…"
+        />
+      );
+    },
   },
   'kpi:session-gen-tok-s': {
     meta: { title: 'Session generation rate', span: 3 },

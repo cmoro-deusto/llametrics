@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTERS, computeDerived, computeSinceStart, downsampleMinMax } from '../metrics';
+import { COUNTERS, computeDerived, computeSinceStart, downsampleMinMax, rollingRate } from '../metrics';
 
 const base = {
   [COUNTERS.promptTokens]: 1000,
@@ -89,6 +89,35 @@ describe('computeSinceStart', () => {
     expect(s.genTokS).toBeNull();
     expect(s.cacheHitRate).toBeNull();
     expect(s.specTokensPerVerif).toBeNull();
+  });
+});
+
+describe('rollingRate', () => {
+  const c = COUNTERS.tokensPredicted;
+  const at = (s: number, v: number) => ({ t: s * 1000, counters: { [c]: v } });
+
+  it('nulls on empty/single samples or missing counter', () => {
+    expect(rollingRate([], c, 60000)).toBeNull();
+    expect(rollingRate([at(0, 100)], c, 60000)).toBeNull();
+    expect(rollingRate([{ t: 0, counters: {} }, { t: 1000, counters: {} }], c, 60000)).toBeNull();
+  });
+
+  it('rates over the oldest in-window sample to the newest', () => {
+    const s = [at(0, 100), at(30, 130), at(60, 160)];
+    // 60s window: from t=0 → 60 tokens / 60s
+    expect(rollingRate(s, c, 60000)).toBeCloseTo(1, 5);
+    // 30s window: from t=30 → 30 tokens / 30s
+    expect(rollingRate(s, c, 30000)).toBeCloseTo(1, 5);
+  });
+
+  it('uses the whole history when it is shorter than the window', () => {
+    const s = [at(0, 0), at(10, 50)];
+    expect(rollingRate(s, c, 60000)).toBeCloseTo(5, 5);
+  });
+
+  it('nulls on counter reset inside the window', () => {
+    const s = [at(0, 1000), at(10, 500)]; // restart
+    expect(rollingRate(s, c, 60000)).toBeNull();
   });
 });
 

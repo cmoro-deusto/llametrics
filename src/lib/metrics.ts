@@ -145,6 +145,41 @@ export function computeSinceStart(cur: CounterMap): SinceStartStats {
   return { genTokS, promptTokS, cacheHitRate, specTokensPerVerif };
 }
 
+/** A sample carrying cumulative counters, newest last. */
+export interface RateSample {
+  t: number;
+  counters: Record<string, number | undefined>;
+}
+
+/**
+ * Rolling rate (per second) of a cumulative counter over the last
+ * `windowMs` of samples. Restart-safe: a negative delta (counter reset)
+ * yields null rather than a bogus rate.
+ */
+export function rollingRate(
+  samples: RateSample[],
+  counter: string,
+  windowMs: number,
+): number | null {
+  const n = samples.length;
+  if (n < 2) return null;
+  const last = samples[n - 1];
+  const lastVal = last.counters[counter];
+  if (lastVal === undefined || !Number.isFinite(lastVal)) return null;
+  const cutoff = last.t - windowMs;
+  // oldest sample with t >= cutoff — scan backwards so the cost is
+  // proportional to the window, not to the (possibly huge) history
+  let i = n - 1;
+  while (i > 0 && samples[i - 1].t >= cutoff) i--;
+  const firstVal = samples[i].counters[counter];
+  if (firstVal === undefined || !Number.isFinite(firstVal)) return null;
+  const dt = (last.t - samples[i].t) / 1000;
+  if (!(dt > 0)) return null;
+  const d = lastVal - firstVal;
+  if (d < 0) return null; // server restarted within the window
+  return d / dt;
+}
+
 /**
  * Downsample points to ~`target` items using min/max buckets so chart
  * spikes are preserved. Points must be sorted by time ascending.
