@@ -173,6 +173,29 @@ describe('chart data path', () => {
     expect(data[1]).toEqual([99, 99, 99, 99, 99, 99, 50]);
   });
 
+  it('yScale series get a dedicated independent right-hand axis', () => {
+    const ticks = makeTicks(4);
+    render(
+      <TrendChart
+        ticks={ticks}
+        series={[
+          { key: 'genTokS', label: 'gen', colorVar: 'chart-1', source: 'derived' },
+          { key: 'promptPrefillTokS', label: 'prefill', colorVar: 'chart-2', source: 'derived', yScale: 'y2' },
+        ]}
+      />,
+    );
+    expect(constructions).toHaveLength(1);
+    const opts = constructions[0].options as unknown as {
+      scales: Record<string, unknown>;
+      axes: { scale?: string }[];
+      series: { label: string; scale?: string }[];
+    };
+    expect(opts.scales.y2).toBeDefined();
+    expect(opts.axes.some((a) => a.scale === 'y2')).toBe(true);
+    expect(opts.series.find((s) => s.label === 'prefill')?.scale).toBe('y2');
+    expect(opts.series.find((s) => s.label === 'gen')?.scale).toBeUndefined();
+  });
+
   it('mixed step + non-step series share one expanded x frame', () => {
     const ticks = makeTicks(4).map((t, i) => ({
       ...t,

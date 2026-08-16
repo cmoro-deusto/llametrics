@@ -23,10 +23,20 @@ import { CountersCard } from './CountersCard';
 // identity — inline arrays would recreate the uPlot instance on every tick
 const TOK_S_SERIES: ChartSeriesDef[] = [
   // live per-poll rates from /slots diffs — these move while a task runs;
-  // the /metrics gauges only spike when a task ENDS
+  // the /metrics gauges only spike when a task ENDS. Mixed magnitudes
+  // (80 tok/s gen vs ~1200 tok/s prefill) get separate y-axes so neither
+  // series squashes the other.
   { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived' },
-  // prefill rate of completed prompts (step: holds the last task's rate)
-  { key: 'promptPrefillTokS', label: 'prompt (prefill)', colorVar: 'chart-2', source: 'derived', step: true },
+  {
+    key: 'promptPrefillTokS',
+    label: 'prompt (prefill)',
+    colorVar: 'chart-2',
+    source: 'derived',
+    step: true,
+    // holds the last completed prompt's speed across idle gaps (like the KPI)
+    fill: 'prev',
+    yScale: 'y2',
+  },
 ];
 const REQUESTS_SERIES: ChartSeriesDef[] = [
   { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true },

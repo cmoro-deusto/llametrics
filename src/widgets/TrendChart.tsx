@@ -21,6 +21,13 @@ export interface ChartSeriesDef {
   /** forward-fill nulls with the previous value (holds the last measured
    * rate across idle gaps instead of drawing diagonal drops) */
   fill?: 'prev';
+  /**
+   * dedicated y-scale key (e.g. 'y2'): series sharing a key get one
+   * right-hand axis that auto-ranges independently of the main scale —
+   * for mixed-magnitude series (e.g. 80 tok/s generation vs 1200 tok/s
+   * prefill) that would squash each other on a shared axis.
+   */
+  yScale?: string;
 }
 
 /**
@@ -203,6 +210,25 @@ export function TrendChart({
     const muted = colors['--text-muted'];
     const borderColor = colors['--border'];
 
+    // dedicated right-hand y-scales for series that opt in
+    const extraScales = [...new Set(series.map((s) => s.yScale).filter((k): k is string => !!k))];
+    const scaleKeyOf = (s: ChartSeriesDef): string => s.yScale ?? 'y';
+    const firstSeriesColor = (key: string): string => {
+      const s = series.find((x) => scaleKeyOf(x) === key);
+      return s ? colors[`--${s.colorVar}`] : borderColor;
+    };
+    // NOTE: uPlot has no min/max scale options — an explicit min there
+    // disables auto-ranging of max and silently maps every point to
+    // NaN (invisible series). A range fn is the supported way to pin
+    // the floor at zero while keeping the top auto.
+    const axisRange = (_u: uPlot, dataMin: number | null, dataMax: number | null): [number, number] => {
+      if (dataMin == null || dataMax == null) return [0, 1];
+      const min = Math.min(0, dataMin);
+      let max = Math.max(0, dataMax);
+      if (max <= min) max = min + 1;
+      return [min, max * 1.05];
+    };
+
     const buildOptions = (width: number, height: number): uPlot.Options => ({
       width,
       height,
@@ -213,24 +239,13 @@ export function TrendChart({
           stroke: colors[`--${s.colorVar}`],
           fill: withAlpha(colors[`--${s.colorVar}`], 0.07),
           width: 2,
+          ...(s.yScale ? { scale: s.yScale } : {}),
         })),
       ],
       scales: {
         x: { time: true },
-        // NOTE: uPlot has no min/max scale options — an explicit min there
-        // disables auto-ranging of max and silently maps every point to
-        // NaN (invisible series). A range fn is the supported way to pin
-        // the floor at zero while keeping the top auto.
-        y: {
-          auto: true,
-          range: (_u, dataMin, dataMax): [number, number] => {
-            if (dataMin == null || dataMax == null) return [0, 1];
-            const min = Math.min(0, dataMin);
-            let max = Math.max(0, dataMax);
-            if (max <= min) max = min + 1;
-            return [min, max * 1.05];
-          },
-        },
+        y: { auto: true, range: axisRange },
+        ...Object.fromEntries(extraScales.map((k) => [k, { auto: true, range: axisRange }])),
       },
       axes: [
         {
@@ -239,12 +254,20 @@ export function TrendChart({
           font: '11px ui-sans-serif, system-ui, sans-serif',
           scale: 'x',
         },
+        // y-axis labels are tinted with the first series on that scale so
+        // it's obvious which axis belongs to which line
         {
-          stroke: borderColor,
+          stroke: firstSeriesColor('y'),
           grid: { stroke: gridColor, width: 1 },
           font: '11px ui-sans-serif, system-ui, sans-serif',
           scale: 'y',
         },
+        ...extraScales.map((k) => ({
+          stroke: firstSeriesColor(k),
+          grid: { stroke: 'transparent' as string, width: 1 },
+          font: '11px ui-sans-serif, system-ui, sans-serif',
+          scale: k,
+        })),
       ],
       padding: [8, 8, 0, 4],
       legend: { show: false },
