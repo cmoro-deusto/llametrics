@@ -28,13 +28,13 @@ export interface ChartSeriesDef {
    * prefill) that would squash each other on a shared axis.
    */
   yScale?: string;
-  /** connect the line across null gaps (uPlot draws nothing through
-   * nulls by default — a one-tick burst between idles is invisible)
-   * unless gaps should read as breaks in the signal */
-  spanGaps?: boolean;
-  /** draw a dot at every sample point (px size; for sparse series where
-   * isolated points would otherwise be invisible until hovered) */
-  points?: number;
+  /**
+   * render as thin bars instead of a line. Gaps between samples become
+   * empty space (no ugly connector diagonals across idle periods), and
+   * for dense data the series is bin-averaged (max per bucket) so bars
+   * stay at least ~5px wide instead of sub-pixel.
+   */
+  bars?: boolean;
 }
 
 /**
@@ -146,6 +146,12 @@ export function TrendChart({
     return v * (s.scale ?? 1);
   };
 
+  // hold the last measured value across nulls (leading nulls stay null)
+  const forwardFill = (col: (number | null)[]): (number | null)[] => {
+    let last: number | null = null;
+    return col.map((v) => (v !== null ? (last = v) : last));
+  };
+
   const formatValue = (v: number): string => {
     switch (unit) {
       case 'rate':
@@ -158,53 +164,66 @@ export function TrendChart({
   };
 
   /**
-   * Build the uPlot frame. For long windows, thin to ~2x pixel width while
-   * keeping every bucket's min and max index per series so spikes survive.
+   * Build the uPlot frame.
+   * Sparse: exact ticks (step expansion where needed).
+   * Dense (more ticks than ~5-6px buckets): bin to one point per bucket —
+   * bar series take the bucket max (spike-preserving), step/fill series
+   * take the bucket's last value (equivalent to holding), plain lines the
+   * max. Without binning, 15 min of 2s ticks would be sub-pixel bars/points.
    */
   const buildData = (): [number[], ...(number | null)[][]] => {
+    const box = boxRef.current;
+    const width = box ? Math.max(200, box.clientWidth) : 600;
+    const target = Math.max(40, Math.floor(width / 6));
+
+    if (ticks.length > target) {
+      const t0 = ticks[0].t / 1000;
+      const t1 = ticks[ticks.length - 1].t / 1000;
+      const span = Math.max(1e-9, t1 - t0);
+      const x: number[] = [];
+      const cols: (number | null)[][] = series.map(() => []);
+      let bi = -1;
+      for (let i = 0; i < ticks.length; i++) {
+        const b = Math.min(target - 1, Math.floor(((ticks[i].t / 1000 - t0) / span) * target));
+        if (b !== bi) {
+          bi = b;
+          x.push(t0 + ((b + 0.5) / target) * span); // bucket center
+          cols.forEach((col) => col.push(null));
+        }
+        series.forEach((s, si) => {
+          const v = sample(s, ticks[i]);
+          if (v === null) return;
+          const cell = cols[si][cols[si].length - 1];
+          if (s.bars || (!s.step && s.fill !== 'prev')) {
+            // keep the spike
+            cols[si][cols[si].length - 1] = cell === null || v > (cell as number) ? v : cell;
+          } else {
+            // step/fill semantics: the last value of the bucket holds
+            cols[si][cols[si].length - 1] = v;
+          }
+        });
+      }
+      return [x, ...cols];
+    }
+
     const anyStep = series.some((s) => s.step);
     const rawX = ticks.map((t) => t.t / 1000);
     const rawCols = series.map((s) => {
       const col = ticks.map((t) => sample(s, t));
-      if (s.fill === 'prev') {
-        let last: number | null = null;
-        for (let i = 0; i < col.length; i++) {
-          if (col[i] !== null) last = col[i];
-          else col[i] = last; // leading nulls (no data yet) stay null
-        }
-      }
-      return col;
+      return s.fill === 'prev' ? forwardFill(col) : col;
     });
-    let data: [number[], ...(number | null)[][]] = anyStep
+    // a bar series never needs step expansion (bars ARE the samples);
+    // when it shares the frame with a step series, forward-fill the step
+    // values instead of duplicating x (keeps the frame lengths aligned)
+    if (series.some((s) => s.bars)) {
+      const cols = rawCols.map((col, si) =>
+        series[si].step || series[si].fill === 'prev' ? forwardFill(col) : col,
+      );
+      return [rawX, ...cols];
+    }
+    return anyStep
       ? expandSteps(rawX, rawCols, series.map((s) => !!s.step))
       : [rawX, ...rawCols];
-
-    const box = boxRef.current;
-    const width = box ? Math.max(200, box.clientWidth) : 600;
-    if (data[0].length <= width * 2) return data;
-
-    const n = data[0].length;
-    const bucket = Math.ceil(n / (width * 2));
-    const keep = new Set<number>();
-    for (let start = 0; start < n; start += bucket) {
-      const end = Math.min(n, start + bucket);
-      keep.add(start);
-      keep.add(end - 1);
-      for (let ci = 1; ci < data.length; ci++) {
-        const col = data[ci];
-        let minI = -1, maxI = -1, minV = Infinity, maxV = -Infinity;
-        for (let i = start; i < end; i++) {
-          const v = col[i];
-          if (v === null) continue;
-          if (v < minV) { minV = v; minI = i; }
-          if (v > maxV) { maxV = v; maxI = i; }
-        }
-        if (minI >= 0) keep.add(minI);
-        if (maxI >= 0) keep.add(maxI);
-      }
-    }
-    const idx = [...keep].sort((a, b) => a - b);
-    return [idx.map((i) => data[0][i]), ...data.slice(1).map((col) => idx.map((i) => col[i]))];
   };
 
   // instance (re)creation: only when the series layout, size, theme or
@@ -241,17 +260,22 @@ export function TrendChart({
       height,
       series: [
         { label: '' },
-        ...series.map((s) => ({
-          label: s.label,
-          stroke: colors[`--${s.colorVar}`],
-          fill: withAlpha(colors[`--${s.colorVar}`], 0.07),
-          width: 2,
-          ...(s.yScale ? { scale: s.yScale } : {}),
-          ...(s.spanGaps ? { spanGaps: true } : {}),
-          ...(s.points
-            ? { points: { show: true, size: s.points, width: 1 } }
-            : {}),
-        })),
+        ...series.map((s) => {
+          const color = colors[`--${s.colorVar}`];
+          // bars: solid-ish bodies, no outline, uPlot's built-in bar path
+          // renderer (55% of the column width, min 1px, rounded top)
+          const barPaths = s.bars
+            ? uPlot.paths.bars?.({ size: [0.55, Infinity, 1], radius: [2, 0] })
+            : undefined;
+          return {
+            label: s.label,
+            stroke: s.bars ? undefined : color,
+            fill: withAlpha(color, s.bars ? 0.7 : 0.07),
+            width: s.bars ? 0 : 2,
+            ...(s.yScale ? { scale: s.yScale } : {}),
+            ...(barPaths ? { paths: barPaths } : {}),
+          };
+        }),
       ],
       scales: {
         x: { time: true },

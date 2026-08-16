@@ -19,6 +19,10 @@ const { constructions, FakeUPlot } = vi.hoisted(() => {
       this.data = data;
       constructions.push({ options: opts, data });
     }
+    // mirror the real uPlot class extension (bar path renderer)
+    static paths = {
+      bars: () => () => null,
+    };
     setSize() {}
     setData(d: (number | null)[][]) {
       this.data = d;
@@ -147,9 +151,9 @@ describe('chart data path', () => {
     render(<>{Render({ ticks })}</>);
     expect(constructions).toHaveLength(1);
     const data = constructions[0].data;
-    // mixed chart: generation (line) + prefill (step) -> x is expanded;
-    // first tick has no values at all (live rate needs a previous sample)
-    expect(data[0]).toHaveLength(7 * 2);
+    // bar + step series share the frame without x duplication:
+    // one x point per tick, step series forward-filled
+    expect(data[0]).toHaveLength(8);
     expect(data[1].filter((v) => v !== null).length).toBe(7);
     expect(data[2].every((v) => v === null)).toBe(true); // no prefill in fixture ticks
   });
@@ -196,22 +200,48 @@ describe('chart data path', () => {
     expect(opts.series.find((s) => s.label === 'gen')?.scale).toBeUndefined();
   });
 
-  it('sparse series can span gaps and mark sample points', () => {
+  it('bar series use the built-in bar renderer without a line', () => {
     const ticks = makeTicks(4);
     render(
       <TrendChart
         ticks={ticks}
         series={[
-          { key: 'liveGenTokS', label: 'gen', colorVar: 'chart-1', source: 'derived', spanGaps: true, points: 3 },
+          { key: 'liveGenTokS', label: 'gen', colorVar: 'chart-1', source: 'derived', bars: true },
         ]}
       />,
     );
     const opts = constructions[0].options as unknown as {
-      series: { label: string; spanGaps?: boolean; points?: { show?: boolean; size?: number } }[];
+      series: { label: string; width: number; stroke: unknown; fill: string; paths: unknown }[];
     };
     const gen = opts.series.find((s) => s.label === 'gen');
-    expect(gen?.spanGaps).toBe(true);
-    expect(gen?.points).toEqual({ show: true, size: 3, width: 1 });
+    expect(gen?.paths).toBeTypeOf('function');
+    expect(gen?.width).toBe(0); // no outline
+    expect(gen?.stroke).toBeUndefined();
+    // jsdom can't resolve CSS vars, so the fill color is empty here —
+    // assert the bar wiring, not the color
+    expect(typeof gen?.fill).toBe('string');
+  });
+
+  it('dense data is binned to ~5-6px buckets, spikes survive in bars', () => {
+    const ticks = makeTicks(100).map((t, i) => ({
+      ...t,
+      // ~20% duty: most buckets are empty
+      derived: { ...t.derived, liveGenTokS: i === 50 ? 999 : i % 5 === 0 ? 50 : null },
+    }));
+    render(
+      <TrendChart
+        ticks={ticks}
+        series={[
+          { key: 'liveGenTokS', label: 'gen', colorVar: 'chart-1', source: 'derived', bars: true },
+        ]}
+      />,
+    );
+    const data = constructions[0].data;
+    // jsdom width 200 → target ~40 buckets, not 100 raw ticks
+    expect(data[0].length).toBeLessThanOrEqual(40);
+    expect(data[0].length).toBeGreaterThanOrEqual(30);
+    expect(Math.max(...data[1].map((v) => v ?? 0))).toBe(999); // spike preserved
+    expect(data[1].some((v) => v === null)).toBe(true); // idle buckets stay empty
   });
 
   it('mixed step + non-step series share one expanded x frame', () => {

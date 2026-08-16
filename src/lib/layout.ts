@@ -165,15 +165,26 @@ export function computeLayout(
     });
   }
 
+  // a widget is "explicit" when the user has placed it: its saved x/y
+  // are sacred. (Re-compacting them after a drop was the bug that made a
+  // dropped card snap back toward its start position.)
+  const isExplicit = (id: string): boolean => {
+    const ov = overrides[id];
+    return !!ov && (ov.x !== undefined || ov.y !== undefined);
+  };
+
   // 2. every other widget, in display order
   for (const id of order) {
     if (pinned && id === pinned.id) continue;
     const ov = overrides[id];
     if (ov && (ov.x !== undefined || ov.y !== undefined)) {
-      // previously pinned: keep x, find the lowest free row at that x
+      // previously placed: honor the exact saved position; only fall
+      // back to the lowest free row at that x if it is taken
       const { w, h } = sizeOf(id);
       const x = Math.min(GRID_COLS - w, Math.max(0, Math.round(ov.x ?? 0)));
-      place(id, x, findRow(x, w, h, placed, id));
+      const y0 = Math.max(0, Math.round(ov.y ?? 0));
+      if (!collides({ x, y: y0, w, h }, placed, id)) place(id, x, y0);
+      else place(id, x, findRow(x, w, h, placed, id));
     } else {
       const { w, h } = sizeOf(id);
       const spot = findSpot(w, h, placed, id);
@@ -181,13 +192,15 @@ export function computeLayout(
     }
   }
 
-  // 3. vertical compaction: pull everything (except the live drag item)
-  //    up as far as it goes
+  // 3. vertical compaction: pull AUTO-FLOWED widgets up as far as they
+  //    go. The live drag item and all explicitly placed widgets are left
+  //    exactly where they are — the drag preview then matches the drop.
   const byY = [...placed].sort(
     (a, b) => a.y - b.y || a.x - b.x || order.indexOf(a.id) - order.indexOf(b.id),
   );
   for (const p of byY) {
     if (pinned && p.id === pinned.id) continue;
+    if (isExplicit(p.id)) continue;
     while (p.y > 0 && !collides({ ...p, y: p.y - 1 }, placed, p.id)) {
       p.y -= 1;
     }
