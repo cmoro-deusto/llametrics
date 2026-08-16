@@ -1,0 +1,60 @@
+# Publish to npm via trusted publishing (OIDC) — no npm token involved.
+# Trigger: push of a vX.Y.Z tag on main whose version matches package.json.
+# npm CLI (≥11.5.1) auto-detects the OIDC environment; provenance
+# attestations are generated automatically (public repo + public package).
+#
+# The npmjs.com trusted-publisher config for this workflow must match:
+#   org/user: cmoro-deusto | repo: llametrics | workflow: publish.yml
+#   environment: npm-publish | allowed action: npm publish
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v6
+
+      # Node ≥22.14 is required for npm trusted publishing; Node 24 ships
+      # an npm CLI new enough for OIDC + automatic provenance.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      # fail fast on a fat-fingered tag instead of publishing the wrong
+      # version or a version that was never bumped to main
+      - name: Verify tag matches package version
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$pkg_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $pkg_version"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # no token: npm exchanges the GitHub OIDC id-token (id-token: write)
+      # for a short-lived, workflow-scoped publish token
+      - name: Publish to npm
+        run: npm publish
