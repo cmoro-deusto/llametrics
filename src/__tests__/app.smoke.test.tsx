@@ -79,6 +79,26 @@ describe('App smoke', () => {
     expect(screen.getByText('Counters (since server start)')).toBeDefined();
   }, 15000);
 
+  it('adds a saved endpoint from the settings modal', async () => {
+    settingsStore.set({ baseUrl: 'http://10.0.0.57:9080' });
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.change(screen.getByPlaceholderText('name'), {
+      target: { value: 'test-ep' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('http://host:port'), {
+      target: { value: 'http://10.0.0.99:8080' },
+    });
+    // regression: Add silently no-op'd when crypto.randomUUID was
+    // unavailable (non-secure http contexts)
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(screen.getByDisplayValue('test-ep')).toBeDefined(), {
+      timeout: 3000,
+    });
+    // the new endpoint shows up in the top-bar switcher
+    expect(screen.getByRole('option', { name: 'test-ep' })).toBeDefined();
+  }, 15000);
+
   it('keeps stale status with last error when the server fails', async () => {
     vi.stubGlobal(
       'fetch',

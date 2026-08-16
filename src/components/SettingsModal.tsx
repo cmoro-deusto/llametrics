@@ -14,6 +14,7 @@ import {
 } from '../lib/settings';
 import { refreshDashboardSettings, useDashboard } from '../lib/dashboard';
 import { historyStore } from '../lib/history';
+import { genId } from '../lib/id';
 import { activeServerKey, WIDGETS } from '../widgets/registry';
 import { PALETTES } from '../theme';
 import { formatCount, type NumberFormat } from '../lib/format';
@@ -46,7 +47,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const addEndpoint = () => {
     if (!endpointName.trim() || !endpointUrl.trim()) return;
     const ep: NamedEndpoint = {
-      id: crypto.randomUUID(),
+      id: genId('ep'),
       name: endpointName.trim(),
       url: endpointUrl.trim(),
     };
@@ -158,7 +159,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 value={endpointUrl}
                 onChange={(e) => setEndpointUrl(e.target.value)}
               />
-              <button className="btn secondary" onClick={addEndpoint}>
+              <button
+                className="btn secondary"
+                onClick={addEndpoint}
+                disabled={!endpointName.trim() || !endpointUrl.trim()}
+              >
                 Add
               </button>
             </div>

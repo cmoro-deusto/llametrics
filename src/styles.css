@@ -623,6 +623,12 @@ code {
   filter: brightness(1.08);
 }
 
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .btn.secondary {
   background: var(--panel-hover);
   color: var(--text-base);
