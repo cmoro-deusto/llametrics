@@ -4,6 +4,8 @@ A modern, themeable, customizable web dashboard for **llama-server** metrics.
 Pure static SPA — no backend: your browser polls the llama-server's
 `/metrics`, `/models`, `/slots`, and `/health` endpoints directly.
 
+![llametrics dashboard](llametrics.png)
+
 ## Features
 
 - **Live KPIs**: generation/prompt throughput (tok/s), prompt cache hit rate,
