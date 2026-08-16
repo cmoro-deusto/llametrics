@@ -42,26 +42,26 @@ Pure static SPA — no backend: your browser polls the llama-server's
 
 ## Quick start
 
+**Install from npm** (prebuilt — just needs Node ≥ 20 to run the CLI):
+
+```bash
+npm i -g @gondor/llametrics
+llametrics                      # → http://127.0.0.1:9100, opens the browser
+```
+
+Enter your llama-server base URL (e.g. `http://10.0.0.57:9080`) and Connect —
+or prefill it: `llametrics --base-url http://10.0.0.57:9080`.
+
+### From source
+
 ```bash
 npm install
 npm run dev          # Vite dev server on http://localhost:5173
-```
-
-Enter your llama-server base URL (e.g. `http://10.0.0.57:9080`) and Connect.
-
-### Production
-
-```bash
 npm run build        # → dist/ (relative-base, deployable to any static host)
 npm start            # serve dist/ via the bundled CLI (127.0.0.1:9100)
 ```
 
-Serve `dist/` from any static file server, or use the bundled CLI:
-
-```bash
-llametrics                                   # npm i -g <this package>
-llametrics --base-url http://10.0.0.57:9080  # prefill the server URL
-```
+`dist/` can also be served from any static file server.
 
 CLI options:
 
