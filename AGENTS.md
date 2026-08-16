@@ -3,7 +3,7 @@
 ## Project Overview
 
 **llametrics** is a modern, themeable web dashboard for llama-server metrics.
-It is a **pure static SPA** (no backend): the browser polls the target
+It is a **pure static SPA (no backend)**: the browser polls the target
 llama-server's `/metrics`, `/models`, `/slots`, and `/health` endpoints
 directly. It renders KPIs, time-series charts over 7 days of persisted
 history (IndexedDB), model cards, and a live slot strip. Theming (light/dark
@@ -65,7 +65,7 @@ the built `dist/` locally.
 - `npm install` — install (Node ≥ 20; npm is canonical, `package-lock.json`)
 - `npm run dev` — Vite dev server (port 5173)
 - `npm run build` — `tsc -b && vite build` → `dist/` (relative `base: './'`)
-- `npm test` — vitest run (all 6 suites)
+- `npm test` — vitest run (11 suites: lib unit tests + widget + app smoke)
 - `npm run test:watch` — vitest watch
 - `npm run typecheck` — `tsc -b --noEmit`
 - `npm start` / `node bin/llametrics.mjs [--port 9100] [--host 127.0.0.1]

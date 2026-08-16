@@ -244,6 +244,38 @@ describe('chart data path', () => {
     expect(data[1].some((v) => v === null)).toBe(true); // idle buckets stay empty
   });
 
+  it('dense data: fill series hold the last value across empty buckets (line stays joined)', () => {
+    const ticks = makeTicks(100).map((t, i) => ({
+      ...t,
+      // prompt activity only in the first ~10 ticks, then idle
+      derived: { ...t.derived, cacheHitRate: i < 10 ? 0.5 + i * 0.01 : null },
+    }));
+    render(
+      <TrendChart
+        ticks={ticks}
+        series={[
+          { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev' },
+        ]}
+      />,
+    );
+    const data = constructions[0].data;
+    expect(data[0].length).toBeLessThanOrEqual(40); // binned
+    // leading empty buckets may stay null (nothing to hold yet), but from
+    // the first measured bucket on the column must be continuous — every
+    // later bucket holds the last measured value
+    const first = data[1].findIndex((v) => v !== null);
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(data[1].length / 2);
+    for (let i = first; i < data[1].length; i++) {
+      expect(data[1][i]).not.toBeNull();
+    }
+    // held tail keeps the last measured (bucketed) value: ticks 0..9 hold
+    // 50..59 (exact tick→bucket boundaries vary with target width)
+    const last = data[1][data[1].length - 1] as number;
+    expect(last).toBeGreaterThanOrEqual(50);
+    expect(last).toBeLessThanOrEqual(59);
+  });
+
   it('mixed step + non-step series share one expanded x frame', () => {
     const ticks = makeTicks(4).map((t, i) => ({
       ...t,
