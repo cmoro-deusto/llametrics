@@ -85,20 +85,24 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       const t = dash.lastTick;
       const live = t?.derived.livePromptTokS ?? null;
       const useLive = !!t?.slots?.some((s) => s.processing) && live !== null;
-      // prefill rate of the last completed prompt (Δtokens/Δprompt-seconds,
-      // uncached) — the real prefill speed; the 60s rolling figure dilutes
-      // short prompt bursts across idle time and looks far too low
-      const prefill = t?.derived.promptPrefillTokS ?? null;
-      const value = useLive
-        ? live
-        : prefill !== null
-          ? prefill
-          : rollingRate(ticks, COUNTERS.promptTokens, ROLLING_MS);
-      const chip = useLive
-        ? 'live · from /slots'
-        : prefill !== null
-          ? 'prefill · non-cached'
-          : '60s rolling';
+      // Hold the real prefill speed of the most recent completed prompt
+      // (Δtokens/Δprompt-seconds, uncached) until the next one arrives —
+      // no 60s rolling average, which dilutes short prompt bursts across
+      // idle time and reads far too low
+      let held: number | null = null;
+      if (!useLive) {
+        for (let i = ticks.length - 1; i >= 0; i--) {
+          const v = ticks[i].derived.promptPrefillTokS;
+          // skip 0: a fully-cached prompt advances prompt_seconds without
+          // non-cached tokens and would hold a meaningless 0.00 on the card
+          if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+            held = v;
+            break;
+          }
+        }
+      }
+      const value = useLive ? live : held;
+      const chip = useLive ? 'live' : held !== null ? 'last completed prompt' : 'awaiting first prompt';
       return (
         <KpiCard
           label="Prompt throughput"
@@ -106,7 +110,7 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
           unit="rate"
           fmt={fmt}
           sub={<span className="chip">{chip}</span>}
-          note="collecting samples…"
+          note="no prompt has finished yet"
         />
       );
     },
