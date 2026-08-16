@@ -58,7 +58,8 @@ export function SortableWidget({
   const [activeHandle, setActiveHandle] = useState<DragKind | null>(null);
 
   const boardOf = (el: HTMLElement): HTMLElement | null => {
-    const b = el.closest('.board');
+    // the inner wrapper: widgets are absolutely positioned relative to it
+    const b = el.closest('.board-inner');
     return b instanceof HTMLElement ? b : null;
   };
 

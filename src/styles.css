@@ -233,11 +233,17 @@ code {
  * stacking (see computeMobileLayout).
  */
 .board {
-  position: relative;
   margin: 0;
-  /* extra top padding: breathing room between the sticky top bar and the
-     first row of cards */
-  padding: 26px 18px 28px;
+}
+
+/*
+ * Inner wrapper: absolutely positioned widgets anchor to this element's
+ * edges, so its MARGIN (not the board's padding) is what creates the
+ * spacing under the top bar / around the edges.
+ */
+.board-inner {
+  position: relative;
+  margin: 26px 18px 28px;
 }
 
 .widget {

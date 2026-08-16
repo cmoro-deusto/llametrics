@@ -102,8 +102,10 @@ export default function App() {
     [order, defaults, settings.widgetLayout, preview, mobile],
   );
 
-  // board sizing (absolute item layout)
-  const boardRef = useRef<HTMLElement | null>(null);
+  // board sizing (absolute item layout) — measured on the inner wrapper,
+  // because absolutely positioned widgets are laid out from the padding
+  // edge: padding on the board itself would NOT push them down
+  const boardRef = useRef<HTMLDivElement | null>(null);
   const [boardW, setBoardW] = useState(0);
   useEffect(() => {
     const el = boardRef.current;
@@ -139,8 +141,11 @@ export default function App() {
     <>
       <TopBar onOpenSettings={() => setSettingsOpen(true)} />
       <Banner />
-      <main className="board" ref={boardRef} style={{ height: boardH }}>
-        {order.map((id) => {
+      <main className="board">
+        {/* the inner wrapper carries the spacing: absolute widgets anchor
+            to its edges, so margin (not padding) is what moves them */}
+        <div className="board-inner" ref={boardRef} style={{ height: boardH }}>
+          {order.map((id) => {
           const pos = layout[id];
           if (!pos) return null;
           return (
@@ -157,6 +162,7 @@ export default function App() {
             />
           );
         })}
+        </div>
       </main>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </>
