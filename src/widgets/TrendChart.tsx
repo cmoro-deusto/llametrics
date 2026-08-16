@@ -264,7 +264,8 @@ export function TrendChart({
             if (!box || !tip) return;
             const { left, top } = u.cursor;
             const xCol = u.data[0] as number[];
-            if (left == null || top == null || xCol.length === 0) {
+            // uPlot's "cursor outside the plot" is left/top = -10 (not null)
+            if (left == null || top == null || left < 0 || top < 0 || xCol.length === 0) {
               tip.style.display = 'none';
               return;
             }
@@ -314,7 +315,16 @@ export function TrendChart({
     const ro = new ResizeObserver(measure);
     ro.observe(box);
 
+    // belt & braces: the setCursor hook already hides the tooltip when the
+    // cursor goes outside the plot, but a native leave catches the rest
+    // (e.g. the pointer leaving the window over the axis area)
+    const hideTip = () => {
+      if (tipRef.current) tipRef.current.style.display = 'none';
+    };
+    box.addEventListener('mouseleave', hideTip);
+
     return () => {
+      box.removeEventListener('mouseleave', hideTip);
       ro.disconnect();
       u.destroy();
       uRef.current = null;

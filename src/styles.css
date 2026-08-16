@@ -235,7 +235,9 @@ code {
 .board {
   position: relative;
   margin: 0;
-  padding: 14px 18px 28px;
+  /* extra top padding: breathing room between the sticky top bar and the
+     first row of cards */
+  padding: 26px 18px 28px;
 }
 
 .widget {
