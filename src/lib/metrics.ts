@@ -57,6 +57,14 @@ export interface DerivedKpis {
   specAcceptRate: IntervalResult<number>;
   /** avg accepted tokens per verification step: (accepted + drafts) / drafts */
   specTokensPerVerif: IntervalResult<number>;
+  /**
+   * True prompt-processing speed of the interval(s) in which prompt time
+   * advanced: Δprompt_tokens_total / Δprompt_seconds_total (uncached
+   * tokens). Unlike the interval-averaged rate, this is the actual
+   * prefill tok/s the hardware ran at — it does not dilute short prompt
+   * bursts across idle time.
+   */
+  promptPrefillTokS: IntervalResult<number>;
 }
 
 /**
@@ -70,11 +78,13 @@ export function computeDerived(prev: CounterMap, cur: CounterMap, dt: number): D
     cacheHitRate: { value: null, reset: false },
     specAcceptRate: { value: null, reset: false },
     specTokensPerVerif: { value: null, reset: false },
+    promptPrefillTokS: { value: null, reset: false },
   };
   if (!(dt > 0)) return out;
 
   const dpTok = delta(prev[COUNTERS.tokensPredicted], cur[COUNTERS.tokensPredicted]);
   const dPrTok = delta(prev[COUNTERS.promptTokens], cur[COUNTERS.promptTokens]);
+  const dPrSec = delta(prev[COUNTERS.promptSeconds], cur[COUNTERS.promptSeconds]);
   const dCached = delta(prev[COUNTERS.promptTokensCached], cur[COUNTERS.promptTokensCached]);
   const dDraft = delta(prev[COUNTERS.specDraftTokens], cur[COUNTERS.specDraftTokens]);
   const dAcc = delta(prev[COUNTERS.specAcceptedTokens], cur[COUNTERS.specAcceptedTokens]);
@@ -87,6 +97,15 @@ export function computeDerived(prev: CounterMap, cur: CounterMap, dt: number): D
   if (dPrTok) {
     if (dPrTok.reset) out.promptTokS.reset = true;
     else out.promptTokS.value = dPrTok.d / dt;
+  }
+  // prompt_seconds_total advances only while non-cached prompt tokens are
+  // decoded, so dividing both deltas gives the real prefill rate of the
+  // task(s) that finished inside the interval (the server's own
+  // prompt_tokens_seconds gauge uses the same ratio)
+  if (dPrTok && dPrSec) {
+    const reset = dPrTok.reset || dPrSec.reset;
+    if (reset) out.promptPrefillTokS.reset = true;
+    else if (dPrSec.d > 0) out.promptPrefillTokS.value = dPrTok.d / dPrSec.d;
   }
   if (dPrTok && dCached) {
     const reset = dPrTok.reset || dCached.reset;

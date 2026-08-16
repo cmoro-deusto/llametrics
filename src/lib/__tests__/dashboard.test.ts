@@ -34,14 +34,22 @@ vi.mock('../api', async (importOriginal) => {
 
 const BASE = 'http://testserver:8080';
 const POLL_MS = 2000;
-const METRICS_TEXT = [
-  '# TYPE llama_prompt_tokens_total counter',
-  'llama_prompt_tokens_total 1000',
-  '# TYPE llama_predicted_tokens_total counter',
-  'llama_predicted_tokens_total 5000',
-  '# TYPE llama_requests_processing gauge',
-  'llama_requests_processing 1',
-].join('\n');
+// prompt counters advance per scrape: +250 tokens / +0.25 s, so the
+// prefill rate (Δtokens/Δseconds) of every interval is 1000 tok/s while
+// the interval-averaged rate over the 2 s poll is only 125 tok/s.
+// NOTE: the `llamacpp:` prefix is mandatory — the parser only strips that
+// prefix, so other prefixes parse but never match the COUNTERS/GAUGES names
+const metricsText = (n: number): string =>
+  [
+    '# TYPE llamacpp:prompt_tokens_total counter',
+    `llamacpp:prompt_tokens_total ${1000 + n * 250}`,
+    '# TYPE llamacpp:prompt_seconds_total counter',
+    `llamacpp:prompt_seconds_total ${(n * 0.25).toFixed(3)}`,
+    '# TYPE llamacpp:tokens_predicted_total counter',
+    'llamacpp:tokens_predicted_total 5000',
+    '# TYPE llamacpp:requests_processing gauge',
+    'llamacpp:requests_processing 1',
+  ].join('\n');
 
 const SLOT_PARAMS = {
   seed: 0,
@@ -125,6 +133,7 @@ const MODELS: ModelsResponse = {
 
 describe('dashboard engine: live slot rate wiring', () => {
   let slotCalls: number;
+  let metricsCalls: number;
 
   beforeEach(async () => {
     // clear IDB with real timers (fake-indexeddb internals), then go fake
@@ -132,7 +141,11 @@ describe('dashboard engine: live slot rate wiring', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-16T12:00:00Z'));
 
-    vi.mocked(fetchMetricsText).mockResolvedValue(METRICS_TEXT);
+    metricsCalls = 0;
+    vi.mocked(fetchMetricsText).mockImplementation(async () => {
+      metricsCalls += 1;
+      return metricsText(metricsCalls);
+    });
     vi.mocked(fetchHealth).mockResolvedValue({ status: 'ok' });
     vi.mocked(fetchModels).mockResolvedValue(MODELS);
 
@@ -185,10 +198,14 @@ describe('dashboard engine: live slot rate wiring', () => {
     expect(dashboard.get().lastTick?.derived?.liveGenTokS).toBeCloseTo(25, 5);
     // prompt processed counter didn't move → no countable delta
     expect(dashboard.get().lastTick?.derived?.livePromptTokS).toBeNull();
+    // prefill rate = Δprompt tokens / Δprompt seconds (250 / 0.25) — the
+    // real prefill speed, independent of the poll interval
+    expect(dashboard.get().lastTick?.derived?.promptPrefillTokS).toBeCloseTo(1000, 5);
 
     // tick 3: regression check — without this.prevSlots being updated the
     // rate is null here (prev stays the stale seed)
     await vi.advanceTimersByTimeAsync(POLL_MS);
     expect(dashboard.get().lastTick?.derived?.liveGenTokS).toBeCloseTo(25, 5);
+    expect(dashboard.get().lastTick?.derived?.promptPrefillTokS).toBeCloseTo(1000, 5);
   });
 });

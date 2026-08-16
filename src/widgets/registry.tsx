@@ -25,7 +25,8 @@ const TOK_S_SERIES: ChartSeriesDef[] = [
   // live per-poll rates from /slots diffs — these move while a task runs;
   // the /metrics gauges only spike when a task ENDS
   { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived' },
-  { key: 'livePromptTokS', label: 'prompt (live)', colorVar: 'chart-2', source: 'derived' },
+  // prefill rate of completed prompts (step: holds the last task's rate)
+  { key: 'promptPrefillTokS', label: 'prompt (prefill)', colorVar: 'chart-2', source: 'derived', step: true },
 ];
 const REQUESTS_SERIES: ChartSeriesDef[] = [
   { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true },
@@ -84,16 +85,27 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       const t = dash.lastTick;
       const live = t?.derived.livePromptTokS ?? null;
       const useLive = !!t?.slots?.some((s) => s.processing) && live !== null;
-      const value = useLive ? live : rollingRate(ticks, COUNTERS.promptTokens, ROLLING_MS);
+      // prefill rate of the last completed prompt (Δtokens/Δprompt-seconds,
+      // uncached) — the real prefill speed; the 60s rolling figure dilutes
+      // short prompt bursts across idle time and looks far too low
+      const prefill = t?.derived.promptPrefillTokS ?? null;
+      const value = useLive
+        ? live
+        : prefill !== null
+          ? prefill
+          : rollingRate(ticks, COUNTERS.promptTokens, ROLLING_MS);
+      const chip = useLive
+        ? 'live · from /slots'
+        : prefill !== null
+          ? 'prefill · non-cached'
+          : '60s rolling';
       return (
         <KpiCard
           label="Prompt throughput"
           value={value}
           unit="rate"
           fmt={fmt}
-          sub={
-            <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
-          }
+          sub={<span className="chip">{chip}</span>}
           note="collecting samples…"
         />
       );

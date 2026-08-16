@@ -43,6 +43,25 @@ describe('computeDerived', () => {
     expect(d.promptTokS.value).toBeCloseTo(20, 5);
   });
 
+  it('prefill rate = Δprompt tokens / Δprompt seconds (real prefill speed)', () => {
+    const cur = {
+      ...base,
+      [COUNTERS.promptTokens]: 1040, // +40
+      [COUNTERS.promptSeconds]: 2.02, // +0.02 s -> 40 / 0.02 = 2000 tok/s
+    };
+    const d = computeDerived(base, cur, 2);
+    expect(d.promptPrefillTokS.value).toBeCloseTo(2000, 5);
+    // the interval-averaged rate over the same burst is far lower — this
+    // is the value that used to be shown and looked "much too low"
+    expect(d.promptTokS.value).toBeCloseTo(20, 5);
+  });
+
+  it('prefill rate is null when no prompt time advanced (idle interval)', () => {
+    const cur = { ...base, [COUNTERS.promptTokens]: 1040 };
+    const d = computeDerived(base, cur, 2);
+    expect(d.promptPrefillTokS.value).toBeNull();
+  });
+
   it('cache hit rate = cached / (prompt + cached)', () => {
     const cur = { ...base, [COUNTERS.promptTokens]: 1040, [COUNTERS.promptTokensCached]: 3060 };
     const d = computeDerived(base, cur, 2);

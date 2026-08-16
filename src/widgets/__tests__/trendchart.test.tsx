@@ -136,9 +136,34 @@ describe('chart data path', () => {
     render(<>{Render({ ticks })}</>);
     expect(constructions).toHaveLength(1);
     const data = constructions[0].data;
-    expect(data[0]).toHaveLength(8);
-    const live = data[1].filter((v) => v !== null).length;
-    expect(live).toBe(7); // first tick has no live rate (needs a previous sample)
+    // mixed chart: generation (line) + prefill (step) -> x is expanded;
+    // first tick has no values at all (live rate needs a previous sample)
+    expect(data[0]).toHaveLength(7 * 2);
+    expect(data[1].filter((v) => v !== null).length).toBe(7);
+    expect(data[2].every((v) => v === null)).toBe(true); // no prefill in fixture ticks
+  });
+
+  it('mixed step + non-step series share one expanded x frame', () => {
+    const ticks = makeTicks(4).map((t, i) => ({
+      ...t,
+      derived: { ...t.derived, promptPrefillTokS: i >= 2 ? 1200 : null },
+    }));
+    render(
+      <TrendChart
+        ticks={ticks}
+        series={[
+          { key: 'genTokS', label: 'gen', colorVar: 'chart-1', source: 'derived' },
+          { key: 'promptPrefillTokS', label: 'prefill', colorVar: 'chart-2', source: 'derived', step: true },
+        ]}
+      />,
+    );
+    expect(constructions).toHaveLength(1);
+    const data = constructions[0].data;
+    expect(data[0]).toHaveLength(1 + 3 * 2); // tick 0 (gen only) + 3 expanded ticks
+    // non-step series: one vertex per tick, null at the hold slots
+    expect(data[1].filter((v) => v !== null)).toEqual([50, 50, 50, 50]);
+    // step series: appears at tick 2, holds its value into tick 3
+    expect(data[2]).toEqual([null, null, null, null, 1200, 1200, 1200]);
   });
 
   it('empty ticks show the "no data yet" empty state instead of a blank canvas', () => {

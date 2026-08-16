@@ -248,6 +248,7 @@ class DashboardEngine {
           cacheHitRate: null,
           specAcceptRate: null,
           specTokensPerVerif: null,
+          promptPrefillTokS: null,
           liveGenTokS: null,
           livePromptTokS: null,
         };
@@ -260,6 +261,7 @@ class DashboardEngine {
             cacheHitRate: d.cacheHitRate.value,
             specAcceptRate: d.specAcceptRate.value,
             specTokensPerVerif: d.specTokensPerVerif.value,
+            promptPrefillTokS: d.promptPrefillTokS.value,
             liveGenTokS: liveSlotRate(prevS, curSlots, dt, 'nDecoded').rate,
             livePromptTokS: liveSlotRate(prevS, curSlots, dt, 'nPromptProcessed').rate,
           };

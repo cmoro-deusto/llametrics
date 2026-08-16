@@ -20,10 +20,13 @@ export interface ChartSeriesDef {
 /**
  * Step-after expansion: each value holds until the next sample time so
  * constant gauges render as visible step lines instead of single points.
+ * Per-series: step series get the hold segment, non-step series get a
+ * single vertex per tick (null at the hold slot) so mixed charts work.
  */
 function expandSteps(
   rawX: number[],
   rawCols: (number | null)[][],
+  stepFlags: boolean[],
 ): [number[], ...(number | null)[][]] {
   const x: number[] = [];
   const cols: (number | null)[][] = rawCols.map(() => []);
@@ -33,7 +36,9 @@ function expandSteps(
     const anyCur = cur.some((v) => v !== null);
     if (prev !== null && anyCur) {
       x.push(rawX[i]);
-      cols.forEach((col, si) => col.push(cur[si] !== null ? prev![si] : null));
+      cols.forEach((col, si) =>
+        col.push(stepFlags[si] ? (cur[si] !== null ? prev![si] : null) : null),
+      );
     }
     if (anyCur) {
       x.push(rawX[i]);
@@ -106,11 +111,11 @@ export function TrendChart({
    * keeping every bucket's min and max index per series so spikes survive.
    */
   const buildData = (): [number[], ...(number | null)[][]] => {
-    const allStep = series.every((s) => s.step);
+    const anyStep = series.some((s) => s.step);
     const rawX = ticks.map((t) => t.t / 1000);
     const rawCols = series.map((s) => ticks.map((t) => sample(s, t)));
-    let data: [number[], ...(number | null)[][]] = allStep
-      ? expandSteps(rawX, rawCols)
+    let data: [number[], ...(number | null)[][]] = anyStep
+      ? expandSteps(rawX, rawCols, series.map((s) => !!s.step))
       : [rawX, ...rawCols];
 
     const box = boxRef.current;

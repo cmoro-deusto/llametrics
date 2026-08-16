@@ -13,6 +13,8 @@ const models = JSON.parse(readFileSync(join(fx, 'models-live.json'), 'utf8'));
 const slots = JSON.parse(readFileSync(join(fx, 'slots-live.json'), 'utf8'));
 
 let t0 = Date.now();
+let promptTok = 40000;
+let promptSec = 36.0;
 const server = createServer((req, res) => {
   const send = (body, type) => {
     res.writeHead(200, {
@@ -23,7 +25,24 @@ const server = createServer((req, res) => {
     res.end(body);
   };
   const p = req.url.split('?')[0];
-  if (p === '/metrics') return send(metrics, 'text/plain; version=0.0.4');
+  if (p === '/metrics') {
+    // simulate a prefill every ~4s: 400 tokens at 1000 tok/s
+    promptTok += 400;
+    promptSec += 0.4;
+    // line-based: a naive .replace() would hit the # HELP line first and
+    // leave the real value line untouched
+    const body = metrics
+      .split('\n')
+      .map((line) =>
+        line.startsWith('llamacpp:prompt_tokens_total')
+          ? `llamacpp:prompt_tokens_total ${promptTok}`
+          : line.startsWith('llamacpp:prompt_seconds_total')
+            ? `llamacpp:prompt_seconds_total ${promptSec.toFixed(3)}`
+            : line,
+      )
+      .join('\n');
+    return send(body, 'text/plain; version=0.0.4');
+  }
   if (p === '/models') return send(JSON.stringify(models), 'application/json');
   if (p === '/health') return send('{"status":"ok"}', 'application/json');
   if (p === '/slots') {
