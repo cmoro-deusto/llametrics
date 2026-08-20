@@ -100,17 +100,29 @@ export interface SlotNextToken {
   n_decoded: number;
 }
 
+/**
+ * One entry of /slots.
+ *
+ * Everything below `is_processing` is emitted by upstream inside
+ * `if (ptask)` where `ptask = task ? task : task_prev`
+ * (server-context.cpp `server_slot::to_json`). Two consequences:
+ *  - a slot that has never run a task omits these fields entirely, so
+ *    they are optional — a fresh server really does return
+ *    `{id, n_ctx, speculative, is_processing}` and nothing else;
+ *  - an IDLE slot reports the PREVIOUS task's values. They are history,
+ *    not current state, and must never be presented as live.
+ */
 export interface SlotInfo {
   id: number;
   n_ctx: number;
   speculative: boolean;
   is_processing: boolean;
-  id_task: number;
-  n_prompt_tokens: number;
-  /** live processed-prompt-token count, +1 per prompt token */
-  n_prompt_tokens_processed: number;
-  n_prompt_tokens_cache: number;
-  params: SlotParams;
+  id_task?: number;
+  n_prompt_tokens?: number;
+  /** processed (uncached) prompt tokens of the current or last task */
+  n_prompt_tokens_processed?: number;
+  n_prompt_tokens_cache?: number;
+  params?: SlotParams;
   /** object or single-element array depending on llama.cpp version */
   next_token?: SlotNextToken | SlotNextToken[];
   [key: string]: unknown;

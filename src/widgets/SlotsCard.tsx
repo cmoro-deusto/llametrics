@@ -53,6 +53,15 @@ export function SlotsCard({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {slots.map((s) => {
         const open = expanded.has(s.id);
+        // Upstream serializes the task fields from `task ? task : task_prev`,
+        // so an idle slot echoes the LAST task's prompt counters and a
+        // never-used slot omits them. Only label them as current while the
+        // slot is actually processing; otherwise mark them as history.
+        const hasTask = s.n_prompt_tokens !== undefined;
+        const cached =
+          s.n_prompt_tokens_cache !== undefined && s.n_prompt_tokens_cache > 0
+            ? ` · cached ${formatCount(s.n_prompt_tokens_cache, fmt)}`
+            : '';
         return (
           <div key={s.id}>
             <div className="slot-row" onClick={() => toggle(s.id)} role="button" aria-expanded={open}>
@@ -60,31 +69,45 @@ export function SlotsCard({
               <span className="slot-id">slot {s.id}</span>
               <span className="slot-meta">{s.is_processing ? 'processing' : 'idle'}</span>
               {s.speculative && <span className="chip">spec decode</span>}
-              <span className="slot-meta">
-                prompt {formatCount(s.n_prompt_tokens, fmt)}
-                {s.n_prompt_tokens_processed !== s.n_prompt_tokens
-                  ? ` (processed ${formatCount(s.n_prompt_tokens_processed, fmt)})`
-                  : ''}
-                {s.n_prompt_tokens_cache > 0
-                  ? ` · cached ${formatCount(s.n_prompt_tokens_cache, fmt)}`
-                  : ''}
-              </span>
+              {s.is_processing ? (
+                <span className="slot-meta">
+                  prompt {formatCount(s.n_prompt_tokens, fmt)} · processed{' '}
+                  {formatCount(s.n_prompt_tokens_processed, fmt)}
+                  {cached}
+                </span>
+              ) : hasTask ? (
+                <span className="slot-meta muted">
+                  last task: prompt {formatCount(s.n_prompt_tokens, fmt)}
+                  {cached}
+                </span>
+              ) : (
+                <span className="slot-meta muted">no task yet</span>
+              )}
               <span className="slot-meta" style={{ marginLeft: 'auto' }}>
                 {open ? '▾' : '▸'}
               </span>
             </div>
             {open && (
               <div className="slot-params">
-                {PARAM_KEYS.map((k) => {
-                  const v = s.params[k];
-                  if (v === undefined) return null;
-                  return (
-                    <div className="row" key={k}>
-                      <span className="k">{k}</span>
-                      <span className="v">{String(v)}</span>
-                    </div>
-                  );
-                })}
+                {s.params === undefined ? (
+                  <span className="muted">no sampling params reported yet</span>
+                ) : (
+                  <>
+                    {!s.is_processing && (
+                      <div className="muted">params of the last task</div>
+                    )}
+                    {PARAM_KEYS.map((k) => {
+                      const v = s.params?.[k];
+                      if (v === undefined) return null;
+                      return (
+                        <div className="row" key={k}>
+                          <span className="k">{k}</span>
+                          <span className="v">{String(v)}</span>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
               </div>
             )}
           </div>
