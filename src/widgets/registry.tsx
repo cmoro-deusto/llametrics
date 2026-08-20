@@ -28,7 +28,7 @@ const TOK_S_SERIES: ChartSeriesDef[] = [
   // series squashes the other.
   // thin bars instead of a line: idle gaps read as empty space (no
   // connector diagonals) and short bursts stay visible
-  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived', bars: true },
+  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived', bars: true, bin: 'peak' },
   {
     key: 'promptPrefillTokS',
     label: 'prompt (prefill)',
@@ -38,19 +38,27 @@ const TOK_S_SERIES: ChartSeriesDef[] = [
     // holds the last completed prompt's speed across idle gaps (like the KPI)
     fill: 'prev',
     yScale: 'y2',
+    // a rate: keep the fastest prompt in the bucket rather than whichever
+    // happened to finish last
+    bin: 'peak',
   },
 ];
 const REQUESTS_SERIES: ChartSeriesDef[] = [
-  { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true },
-  { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true },
+  // peak per bucket: these spend most of their time at 0, and the whole
+  // point of the chart is the moments they are not. Keeping the bucket's
+  // last value (the old behaviour) hid every short burst at wide windows.
+  { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true, bin: 'peak' },
+  { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true, bin: 'peak' },
 ];
 const CACHE_SERIES: ChartSeriesDef[] = [
   // 0..1 ratio plotted as a percentage; holds the last measured rate
   // across idle gaps (a prompt only produces a new value when it ends)
-  { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev' },
+  // 'last', not peak: a percentage's bucket maximum would read as a
+  // better cache than the server actually delivered
+  { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev', bin: 'last' },
 ];
 const SPEC_SERIES: ChartSeriesDef[] = [
-  { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev' },
+  { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev', bin: 'last' },
 ];
 
 /**

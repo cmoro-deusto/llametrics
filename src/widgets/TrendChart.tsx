@@ -30,11 +30,25 @@ export interface ChartSeriesDef {
   yScale?: string;
   /**
    * render as thin bars instead of a line. Gaps between samples become
-   * empty space (no ugly connector diagonals across idle periods), and
-   * for dense data the series is bin-averaged (max per bucket) so bars
-   * stay at least ~5px wide instead of sub-pixel.
+   * empty space (no ugly connector diagonals across idle periods).
    */
   bars?: boolean;
+  /**
+   * how this series collapses when there are more ticks than pixels:
+   *  - 'peak' keeps the largest sample in the bucket, so bursts and
+   *    spikes survive at wide windows (rates, requests in flight);
+   *  - 'last' keeps the bucket's final sample, which is what a held
+   *    ratio means — a peak would bias a percentage upward.
+   * Binning is disclosed in the chart caption, because the same line
+   * means different things at different widths.
+   */
+  bin?: 'peak' | 'last';
+}
+
+/** Bucket rule for a series, defaulting by shape when not set explicitly. */
+export function binModeOf(s: ChartSeriesDef): 'peak' | 'last' {
+  if (s.bin) return s.bin;
+  return s.step && s.fill === 'prev' ? 'last' : 'peak';
 }
 
 /**
@@ -47,10 +61,13 @@ function expandSteps(
   rawX: number[],
   rawCols: (number | null)[][],
   stepFlags: boolean[],
-): [number[], ...(number | null)[][]] {
+  rawHeld: (number | null)[][],
+): { frame: [number[], ...(number | null)[][]]; held: (number | null)[][] } {
   const x: number[] = [];
   const cols: (number | null)[][] = rawCols.map(() => []);
+  const held: (number | null)[][] = rawCols.map(() => []);
   let prev: (number | null)[] | null = null;
+  let prevT: number | null = null;
   for (let i = 0; i < rawX.length; i++) {
     const cur = rawCols.map((col) => col[i]);
     const anyCur = cur.some((v) => v !== null);
@@ -59,14 +76,19 @@ function expandSteps(
       cols.forEach((col, si) =>
         col.push(stepFlags[si] ? (cur[si] !== null ? prev![si] : null) : null),
       );
+      // the hold vertex repeats the previous point's value at this x, so
+      // its measurement time is that point's (itself possibly inherited)
+      held.forEach((col, si) => col.push(rawHeld[si][i - 1] ?? prevT));
     }
     if (anyCur) {
       x.push(rawX[i]);
       cols.forEach((col, si) => col.push(cur[si]));
+      held.forEach((col, si) => col.push(rawHeld[si][i]));
     }
     prev = cur;
+    prevT = rawX[i];
   }
-  return [x, ...cols];
+  return { frame: [x, ...cols], held };
 }
 
 /**
@@ -114,6 +136,13 @@ export function TrendChart({
   const boxRef = useRef<HTMLDivElement>(null);
   const uRef = useRef<uPlot | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+  /**
+   * Per-series, per-frame-index measurement time (seconds) for points that
+   * were forward-filled rather than measured; null where the point is a
+   * real sample. Kept in a ref because it is rebuilt with every frame and
+   * only read inside uPlot's cursor hook.
+   */
+  const heldRef = useRef<(number | null)[][]>([]);
   // the panel is user-resizable: the chart fills whatever box it is in
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
   const [chartError, setChartError] = useState<string | null>(null);
@@ -140,16 +169,60 @@ export function TrendChart({
     [series],
   );
 
+  /**
+   * What binning is in effect right now, or null when every tick has its
+   * own point. Derived from the measured box so the caption tracks
+   * resizes; buildFrame uses the same target formula.
+   */
+  const binning = useMemo(() => {
+    const width = Math.max(200, boxSize.w || 600);
+    const target = Math.max(40, Math.floor(width / 6));
+    if (ticks.length <= target) return null;
+    const spanMs = ticks[ticks.length - 1].t - ticks[0].t;
+    const perBucketS = spanMs / target / 1000;
+    const label =
+      perBucketS >= 60
+        ? `${Math.round(perBucketS / 60)} min/pt`
+        : `${perBucketS >= 10 ? Math.round(perBucketS) : perBucketS.toFixed(1)} s/pt`;
+    return { label, modes: [...new Set(series.map(binModeOf))].sort() };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticks, boxSize.w, seriesKey]);
+
+
   const sample = (s: ChartSeriesDef, t: Tick): number | null => {
     const v = s.source === 'gauges' ? t.gauges[s.key] : t.derived[s.key];
     if (v === undefined || v === null || !Number.isFinite(v)) return null;
     return v * (s.scale ?? 1);
   };
 
-  // hold the last measured value across nulls (leading nulls stay null)
-  const forwardFill = (col: (number | null)[]): (number | null)[] => {
+  /**
+   * Same fill, but also carrying WHEN each value was measured. A held
+   * point is visually identical to a measured one — a cache hit rate from
+   * one prompt an hour ago draws the same flat line as continuous
+   * activity — so the tooltip needs to be able to say how old it is.
+   * Entry is null where the point is a genuine measurement at that x.
+   */
+  const forwardFillWithAge = (
+    col: (number | null)[],
+    times: number[],
+  ): { col: (number | null)[]; heldFrom: (number | null)[] } => {
     let last: number | null = null;
-    return col.map((v) => (v !== null ? (last = v) : last));
+    let lastT: number | null = null;
+    const out: (number | null)[] = [];
+    const heldFrom: (number | null)[] = [];
+    for (let i = 0; i < col.length; i++) {
+      const v = col[i];
+      if (v !== null) {
+        last = v;
+        lastT = times[i];
+        out.push(v);
+        heldFrom.push(null);
+      } else {
+        out.push(last);
+        heldFrom.push(last === null ? null : lastT);
+      }
+    }
+    return { col: out, heldFrom };
   };
 
   const formatValue = (v: number): string => {
@@ -164,19 +237,26 @@ export function TrendChart({
   };
 
   /**
-   * Build the uPlot frame.
+   * Build the uPlot frame, plus the parallel "when was this measured"
+   * columns the tooltip uses to disclose held points.
+   *
    * Sparse: exact ticks (step expansion where needed).
-   * Dense (more ticks than ~5-6px buckets): bin to one point per bucket —
-   * bar series take the bucket max (spike-preserving), step/fill series
-   * take the bucket's last value (equivalent to holding), plain lines the
-   * max. fill series then forward-fill empty buckets so their line stays
-   * joined (a null bucket is a line break in uPlot). Without binning,
-   * 15 min of 2s ticks would be sub-pixel bars/points.
+   * Dense (more ticks than ~5-6px buckets): one point per bucket, chosen
+   * by each series' bin mode — 'peak' keeps the largest sample so bursts
+   * and request spikes survive, 'last' keeps the final sample, which is
+   * what a held ratio means. fill series then forward-fill empty buckets
+   * so their line stays joined (a null bucket is a line break in uPlot).
+   * Without binning, 15 min of 2 s ticks would be sub-pixel bars/points.
    */
-  const buildData = (): [number[], ...(number | null)[][]] => {
+  const binTarget = (width: number): number => Math.max(40, Math.floor(width / 6));
+
+  const buildFrame = (): {
+    frame: [number[], ...(number | null)[][]];
+    held: (number | null)[][];
+  } => {
     const box = boxRef.current;
     const width = box ? Math.max(200, box.clientWidth) : 600;
-    const target = Math.max(40, Math.floor(width / 6));
+    const target = binTarget(width);
 
     if (ticks.length > target) {
       const t0 = ticks[0].t / 1000;
@@ -184,6 +264,9 @@ export function TrendChart({
       const span = Math.max(1e-9, t1 - t0);
       const x: number[] = [];
       const cols: (number | null)[][] = series.map(() => []);
+      // measurement time of each bucket's value, in seconds (null until a
+      // bucket is filled from a neighbour rather than its own sample)
+      const srcT: (number | null)[][] = series.map(() => []);
       let bi = -1;
       for (let i = 0; i < ticks.length; i++) {
         const b = Math.min(target - 1, Math.floor(((ticks[i].t / 1000 - t0) / span) * target));
@@ -191,48 +274,78 @@ export function TrendChart({
           bi = b;
           x.push(t0 + ((b + 0.5) / target) * span); // bucket center
           cols.forEach((col) => col.push(null));
+          srcT.forEach((col) => col.push(null));
         }
         series.forEach((s, si) => {
           const v = sample(s, ticks[i]);
           if (v === null) return;
-          const cell = cols[si][cols[si].length - 1];
-          if (s.bars || (!s.step && s.fill !== 'prev')) {
-            // keep the spike
-            cols[si][cols[si].length - 1] = cell === null || v > (cell as number) ? v : cell;
+          const last = cols[si].length - 1;
+          const cell = cols[si][last];
+          if (binModeOf(s) === 'peak') {
+            if (cell === null || v > (cell as number)) {
+              cols[si][last] = v;
+              srcT[si][last] = ticks[i].t / 1000;
+            }
           } else {
-            // step/fill semantics: the last value of the bucket holds
-            cols[si][cols[si].length - 1] = v;
+            cols[si][last] = v;
+            srcT[si][last] = ticks[i].t / 1000;
           }
         });
       }
       // hold the last measured value across buckets that had no sample at
-      // all (same semantics as the sparse path's forwardFill): without this
-      // a fill series breaks its line at every empty bucket — idle
-      // stretches between prompts read as gaps in the chart
+      // all (same semantics as the sparse path): without this a fill series
+      // breaks its line at every empty bucket — idle stretches between
+      // prompts read as gaps in the chart
+      const held: (number | null)[][] = series.map(() => []);
       for (let si = 0; si < series.length; si++) {
-        if (series[si].fill === 'prev') cols[si] = forwardFill(cols[si]);
+        if (series[si].fill === 'prev') {
+          const filled = forwardFillWithAge(cols[si], srcT[si].map((t, i) => t ?? x[i]));
+          cols[si] = filled.col;
+          held[si] = filled.heldFrom;
+        } else {
+          held[si] = cols[si].map(() => null);
+        }
       }
-      return [x, ...cols];
+      return { frame: [x, ...cols], held };
     }
 
     const anyStep = series.some((s) => s.step);
     const rawX = ticks.map((t) => t.t / 1000);
-    const rawCols = series.map((s) => {
-      const col = ticks.map((t) => sample(s, t));
-      return s.fill === 'prev' ? forwardFill(col) : col;
-    });
+    const build = (holdFlags: boolean[]) => {
+      const cols: (number | null)[][] = [];
+      const held: (number | null)[][] = [];
+      series.forEach((s, si) => {
+        const raw = ticks.map((t) => sample(s, t));
+        if (holdFlags[si]) {
+          const filled = forwardFillWithAge(raw, rawX);
+          cols.push(filled.col);
+          held.push(filled.heldFrom);
+        } else {
+          cols.push(raw);
+          held.push(raw.map(() => null));
+        }
+      });
+      return { cols, held };
+    };
+
     // a bar series never needs step expansion (bars ARE the samples);
     // when it shares the frame with a step series, forward-fill the step
     // values instead of duplicating x (keeps the frame lengths aligned)
     if (series.some((s) => s.bars)) {
-      const cols = rawCols.map((col, si) =>
-        series[si].step || series[si].fill === 'prev' ? forwardFill(col) : col,
-      );
-      return [rawX, ...cols];
+      const { cols, held } = build(series.map((s) => !!s.step || s.fill === 'prev'));
+      return { frame: [rawX, ...cols], held };
     }
+    const { cols, held } = build(series.map((s) => s.fill === 'prev'));
     return anyStep
-      ? expandSteps(rawX, rawCols, series.map((s) => !!s.step))
-      : [rawX, ...rawCols];
+      ? expandSteps(rawX, cols, series.map((s) => !!s.step), held)
+      : { frame: [rawX, ...cols], held };
+  };
+
+  // uPlot only ever receives the value columns
+  const buildData = (): [number[], ...(number | null)[][]] => {
+    const built = buildFrame();
+    heldRef.current = built.held;
+    return built.frame;
   };
 
   // instance (re)creation: only when the series layout, size, theme or
@@ -343,9 +456,19 @@ export function TrendChart({
               const v = u.data[si][i];
               if (v == null || !Number.isFinite(v)) continue;
               const color = (u.series[si] as { _stroke?: string })._stroke ?? '';
+              // a forward-filled point looks exactly like a measured one;
+              // say when it was actually measured instead of implying the
+              // server reported this value at the hovered time
+              const heldFrom = heldRef.current[si - 1]?.[i] ?? null;
+              const heldNote =
+                heldFrom != null
+                  ? ` <span class="chart-tip-held">held from ${new Date(
+                      heldFrom * 1000,
+                    ).toLocaleTimeString('en-GB', { hour12: false })}</span>`
+                  : '';
               rows +=
                 `<div class="chart-tip-row"><span class="chart-tip-dot" style="background:${color}"></span>` +
-                `<span class="chart-tip-label">${u.series[si].label}</span><b>${formatValue(v as number)}</b></div>`;
+                `<span class="chart-tip-label">${u.series[si].label}</span><b>${formatValue(v as number)}</b>${heldNote}</div>`;
             }
             if (!rows) {
               tip.style.display = 'none';
@@ -428,6 +551,20 @@ export function TrendChart({
             {s.label}
           </span>
         ))}
+        {binning && (
+          <span
+            className="chart-binned"
+            title={
+              `More samples than pixels: each point covers ${binning.label} of ticks. ` +
+              (binning.modes.includes('peak')
+                ? 'Series marked peak show the largest sample in that span, not an average. '
+                : '') +
+              'Narrow the chart window to see individual samples.'
+            }
+          >
+            binned · {binning.label} · {binning.modes.join(' + ')}
+          </span>
+        )}
       </div>
       {chartError ? (
         <span className="muted">chart unavailable: {chartError}</span>

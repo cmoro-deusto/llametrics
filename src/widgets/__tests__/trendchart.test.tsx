@@ -6,7 +6,7 @@
  * and the live-derived series.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 
 // capture uPlot construction instead of drawing
 const { constructions, FakeUPlot } = vi.hoisted(() => {
@@ -34,7 +34,7 @@ const { constructions, FakeUPlot } = vi.hoisted(() => {
 });
 vi.mock('uplot', () => ({ default: FakeUPlot }));
 
-import { TrendChart, nearestXIndex } from '../TrendChart';
+import { TrendChart, binModeOf, nearestXIndex } from '../TrendChart';
 import { WIDGETS } from '../registry';
 import type { Tick } from '../../lib/history';
 
@@ -90,6 +90,7 @@ function makeTicks(n: number, startT = Date.now() - n * 2000): Tick[] {
 
 afterEach(() => {
   constructions.length = 0;
+  cleanup();
 });
 
 describe('nearestXIndex', () => {
@@ -323,5 +324,138 @@ describe('chart data path', () => {
     );
     expect(constructions).toHaveLength(0);
     expect(screen.getByText('no values in this window')).toBeTruthy();
+  });
+});
+
+describe('binning is deliberate and disclosed', () => {
+  it('binModeOf defaults by shape and honours an explicit mode', () => {
+    const base = { key: 'k', label: 'l', colorVar: 'chart-1', source: 'derived' as const };
+    // held ratios keep the bucket's last value
+    expect(binModeOf({ ...base, step: true, fill: 'prev' })).toBe('last');
+    // rates and plain gauges keep the peak
+    expect(binModeOf({ ...base, bars: true })).toBe('peak');
+    expect(binModeOf({ ...base, step: true })).toBe('peak');
+    // explicit always wins
+    expect(binModeOf({ ...base, step: true, fill: 'prev', bin: 'peak' })).toBe('peak');
+    expect(binModeOf({ ...base, bars: true, bin: 'last' })).toBe('last');
+  });
+
+  it("peak binning keeps a one-tick request spike that 'last' would drop", () => {
+    // a single tick with 3 in flight, surrounded by zeros: with 100 ticks
+    // in ~40 buckets each bucket holds 2-3 ticks, so 'last' loses it
+    const ticks = makeTicks(100).map((t, i) => ({
+      ...t,
+      gauges: { ...t.gauges, requests_processing: i === 50 ? 3 : 0 },
+    }));
+    const def = {
+      key: 'requests_processing',
+      label: 'processing',
+      colorVar: 'chart-3',
+      source: 'gauges' as const,
+      step: true,
+    };
+
+    render(<TrendChart ticks={ticks} series={[{ ...def, bin: 'peak' }]} />);
+    const peak = constructions[0].data;
+    expect(peak[0].length).toBeLessThan(ticks.length); // binning did happen
+    expect(Math.max(...peak[1].map((v) => v ?? 0))).toBe(3);
+
+    constructions.length = 0;
+    cleanup();
+    render(<TrendChart ticks={ticks} series={[{ ...def, bin: 'last' }]} />);
+    // documents why the default changed: the spike is gone
+    expect(Math.max(...constructions[0].data[1].map((v) => v ?? 0))).toBe(0);
+  });
+
+  it('a ratio series bins by last so a percentage is not biased upward', () => {
+    const ticks = makeTicks(100).map((t, i) => ({
+      ...t,
+      derived: { ...t.derived, cacheHitRate: i % 3 === 0 ? 1 : 0.2 },
+    }));
+    render(
+      <TrendChart
+        ticks={ticks}
+        unit="percent"
+        series={[
+          {
+            key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1',
+            source: 'derived', step: true, scale: 100, fill: 'prev', bin: 'last',
+          },
+        ]}
+      />,
+    );
+    const col = constructions[0].data[1].filter((v): v is number => v !== null);
+    // every bucket contains a 100% tick; peak binning would pin the whole
+    // series at 100 and claim a perfect cache
+    expect(col.every((v) => v === 100)).toBe(false);
+  });
+
+  it('says so in the caption when it is showing binned points', () => {
+    const { container } = render(
+      <TrendChart
+        ticks={makeTicks(200)}
+        series={[{ key: 'liveGenTokS', label: 'gen', colorVar: 'chart-1', source: 'derived', bars: true }]}
+      />,
+    );
+    const caption = container.querySelector('.chart-binned');
+    expect(caption).toBeTruthy();
+    expect(caption!.textContent).toMatch(/binned/);
+    expect(caption!.textContent).toMatch(/s\/pt|min\/pt/);
+    expect(caption!.textContent).toMatch(/peak/);
+  });
+
+  it('no caption when every tick has its own point', () => {
+    const { container } = render(
+      <TrendChart
+        ticks={makeTicks(5)}
+        series={[{ key: 'liveGenTokS', label: 'gen', colorVar: 'chart-1', source: 'derived', bars: true }]}
+      />,
+    );
+    expect(container.querySelector('.chart-binned')).toBeNull();
+  });
+});
+
+describe('held points are disclosed in the tooltip', () => {
+  /** drive the real setCursor hook against the captured frame */
+  const hover = (frameIndex: number): string => {
+    const { options, data } = constructions[0];
+    const hooks = options.hooks as { setCursor: ((u: unknown) => void)[] };
+    const xCol = data[0] as number[];
+    const u = {
+      cursor: { left: 10, top: 10 },
+      data,
+      series: [{ label: '' }, ...(options.series as { label: string }[]).slice(1)],
+      posToVal: () => xCol[frameIndex],
+    };
+    hooks.setCursor[0](u);
+    return document.querySelector('.chart-tip')!.innerHTML;
+  };
+
+  it('marks a forward-filled point with when it was really measured', () => {
+    // one measurement at tick 0, then nothing: every later point is held
+    const ticks = makeTicks(6).map((t, i) => ({
+      ...t,
+      derived: { ...t.derived, cacheHitRate: i === 0 ? 0.5 : null },
+    }));
+    render(
+      <TrendChart
+        ticks={ticks}
+        unit="percent"
+        series={[
+          {
+            key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1',
+            source: 'derived', step: true, scale: 100, fill: 'prev',
+          },
+        ]}
+      />,
+    );
+    const measured = hover(0);
+    expect(measured).toMatch(/50\.0%/);
+    expect(measured).not.toMatch(/held from/);
+
+    // last frame index: same 50% value, but carried
+    const held = hover((constructions[0].data[0] as number[]).length - 1);
+    expect(held).toMatch(/50\.0%/);
+    expect(held).toMatch(/held from \d\d:\d\d:\d\d/);
   });
 });
