@@ -8,12 +8,21 @@ import {
 } from '../format';
 
 describe('formatBytes', () => {
+  // decimal units: the label says GB, so the divisor must be 1000. The
+  // 1024-based version printed "16.68 GB" for a 17.91 GB model.
   it('human-readable', () => {
-    expect(formatBytes(17912397824)).toBe('16.7 GB');
-    expect(formatBytes(1023)).toBe('1023 B');
-    expect(formatBytes(1536)).toBe('1.50 KB');
-    expect(formatBytes(123456789)).toBe('118 MB');
+    expect(formatBytes(17912397824)).toBe('17.9 GB');
+    expect(formatBytes(999)).toBe('999 B');
+    expect(formatBytes(1000)).toBe('1.00 KB');
+    expect(formatBytes(1500)).toBe('1.50 KB');
+    expect(formatBytes(123456789)).toBe('123 MB');
     expect(formatBytes(0)).toBe('0.00 B');
+  });
+
+  it('caps at the largest unit', () => {
+    expect(formatBytes(5e15)).toBe('5.00 PB');
+    // no EB in the list, so beyond PB it just keeps counting PB
+    expect(formatBytes(5e18)).toBe('5000 PB');
   });
 
   it('raw', () => {

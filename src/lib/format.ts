@@ -3,14 +3,20 @@
 export type NumberFormat = 'human' | 'raw';
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
+/**
+ * Decimal (SI) step, matching the KB/MB/GB labels above. This used to
+ * divide by 1024 while still printing KB/MB/GB, which understated every
+ * size by ~2.4% per step — a 17.91 GB model read "16.68 GB".
+ */
+const STEP = 1000;
 
 export function formatBytes(n: number | null | undefined, fmt: NumberFormat = 'human'): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
   if (fmt === 'raw') return n.toLocaleString('en-US');
   let i = 0;
   let v = n;
-  while (v >= 1024 && i < UNITS.length - 1) {
-    v /= 1024;
+  while (Math.abs(v) >= STEP && i < UNITS.length - 1) {
+    v /= STEP;
     i++;
   }
   const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
