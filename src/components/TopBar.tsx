@@ -13,7 +13,16 @@ const STATUS_LABEL: Record<string, string> = {
 export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const settings = useSettings();
   const dash = useDashboard();
-  const model = dash.models && dash.models.length > 0 ? dash.models[0].name : null;
+  // With a multi-model server, models[0] is an arbitrary pick — naming the
+  // whole dashboard after it is wrong. Show the name only when there is
+  // exactly one, otherwise report the count.
+  const models = dash.models;
+  const modelLabel =
+    !models || models.length === 0
+      ? null
+      : models.length === 1
+        ? models[0].name
+        : `${models.length} models`;
 
   const currentUrl = settings.baseUrl;
   const options = [
@@ -31,7 +40,14 @@ export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
       </span>
       <span className={`status-dot ${dash.status}`} aria-hidden />
       <span className="status-label">{STATUS_LABEL[dash.status]}</span>
-      {model && <span className="model-name" title={model}>{model}</span>}
+      {modelLabel && (
+        <span
+          className="model-name"
+          title={models && models.length > 1 ? models.map((m) => m.name).join(', ') : modelLabel}
+        >
+          {modelLabel}
+        </span>
+      )}
       <span className="spacer" />
       {options.length > 0 && (
         <select

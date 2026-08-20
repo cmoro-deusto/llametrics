@@ -1,11 +1,6 @@
 /** Model cards from /models (name + merged numeric details). */
 import type { ModelCardData } from '../lib/api';
-import {
-  formatBytes,
-  formatCount,
-  formatDateTime,
-  type NumberFormat,
-} from '../lib/format';
+import { formatBytes, formatCount, type NumberFormat } from '../lib/format';
 
 export function ModelsCard({
   models,
@@ -50,9 +45,6 @@ export function ModelsCard({
             <ModelStat k="vocab" v={formatCount(m.nVocab, fmt)} />
             <ModelStat k="embedding" v={m.nEmbD != null ? String(m.nEmbD) : '—'} />
           </div>
-          {m.created != null && (
-            <div className="muted">loaded {formatDateTime(m.created)}</div>
-          )}
         </div>
       ))}
     </div>

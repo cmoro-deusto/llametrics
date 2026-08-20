@@ -61,4 +61,35 @@ describe('buildModelCards', () => {
     expect(cards[0].nParams).toBeNull();
     expect(cards[0].tags).toContain('t1');
   });
+
+  it('never borrows another model\'s numbers when data[] has no match', () => {
+    // multi-model server: only 'known' is described in data[]. 'unknown'
+    // must render as empty, NOT inherit known's size/params/context.
+    const model = (name: string) => ({
+      name, model: name, modified_at: '', size: '', digest: '', type: 'model',
+      description: '', tags: [], capabilities: [], parameters: '',
+      details: { parent_model: '', format: 'gguf', family: '', families: [], parameter_size: '', quantization_level: '' },
+    });
+    const cards = buildModelCards({
+      models: [model('unknown'), model('known')],
+      object: 'list',
+      data: [
+        {
+          id: 'known', aliases: [], tags: [], object: 'model', created: 0, owned_by: 'llamacpp',
+          meta: {
+            vocab_type: 2, n_vocab: 1234, n_ctx: 4096, n_ctx_train: 8192,
+            n_embd: 512, n_params: 7_000_000_000, size: 4_000_000_000, ftype: 'Q4_K_M',
+          },
+        },
+      ],
+    });
+    const unknown = cards.find((c) => c.name === 'unknown')!;
+    expect(unknown.sizeBytes).toBeNull();
+    expect(unknown.nParams).toBeNull();
+    expect(unknown.nCtx).toBeNull();
+    expect(unknown.ftype).toBeNull();
+    expect(unknown.aliases).toEqual([]);
+    // the matched one still resolves
+    expect(cards.find((c) => c.name === 'known')!.sizeBytes).toBe(4_000_000_000);
+  });
 });

@@ -49,14 +49,3 @@ export function formatDuration(seconds: number): string {
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
 }
-
-export function formatDateTime(ts: number | null | undefined): string {
-  if (ts === null || ts === undefined) return '—';
-  return new Date(ts * 1000).toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}

@@ -31,6 +31,12 @@ export interface ModelDatum {
   aliases: string[];
   tags: string[];
   object: string;
+  /**
+   * OpenAI-compat only: llama.cpp fills this with `std::time(0)` at
+   * REQUEST time (server-context.cpp `get_res_model_info`), so it is the
+   * moment of the scrape — NOT when the model was loaded. Never display
+   * it as a timestamp of anything.
+   */
   created: number;
   owned_by: string;
   meta: {
@@ -138,13 +144,16 @@ export interface ModelCardData {
   nCtxTrain: number | null;
   nVocab: number | null;
   nEmbD: number | null;
-  created: number | null;
 }
 
 export function buildModelCards(resp: ModelsResponse): ModelCardData[] {
   const dataById = new Map<string, ModelDatum>(resp.data.map((d) => [d.id, d]));
   return resp.models.map((m) => {
-    const d = dataById.get(m.model) ?? dataById.get(m.name) ?? resp.data[0];
+    // Match by id only. There used to be a `?? resp.data[0]` fallback here:
+    // with a multi-model server that silently painted the FIRST model's
+    // size/params/context onto an unrelated model's card. An unmatched
+    // model shows '—' for its numbers instead of another model's.
+    const d = dataById.get(m.model) ?? dataById.get(m.name);
     return {
       name: m.name,
       aliases: d?.aliases ?? [],
@@ -158,7 +167,6 @@ export function buildModelCards(resp: ModelsResponse): ModelCardData[] {
       nCtxTrain: d ? d.meta.n_ctx_train : null,
       nVocab: d ? d.meta.n_vocab : null,
       nEmbD: d ? d.meta.n_embd : null,
-      created: d?.created ?? null,
     };
   });
 }
