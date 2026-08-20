@@ -51,7 +51,11 @@ export function KpiCard({
         {unitLabel && <span className="kpi-unit">{unitLabel}</span>}
       </div>
       <div className="kpi-sub">
-        {hasValue ? sub : <span className="muted">{note ?? 'waiting for samples'}</span>}
+        {/* the note explains a missing headline number; `sub` carries
+            secondary facts (mode, definitions, the server's own figure)
+            that stay meaningful either way, so both can show at once */}
+        {!hasValue && <span className="muted">{note ?? 'waiting for samples'}</span>}
+        {sub}
       </div>
     </div>
   );

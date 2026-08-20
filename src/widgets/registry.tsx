@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { useDashboard } from '../lib/dashboard';
 import { useTicks } from '../hooks/useTicks';
 import { COUNTERS, GAUGES, computeSinceStart, rollingRate } from '../lib/metrics';
+import { formatRate } from '../lib/format';
 import { normalizeBaseUrl } from '../lib/api';
 import { useSettings, type Settings } from '../lib/settings';
 import type { Tick } from '../lib/history';
@@ -52,6 +53,47 @@ const SPEC_SERIES: ChartSeriesDef[] = [
   { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev' },
 ];
 
+/**
+ * The server's own throughput gauges.
+ *
+ * llama.cpp computes these from a bucket that the /metrics scrape itself
+ * resets (server-context.cpp: "the gauges are averaged over the window
+ * between two scrapes"), so the value is the true, server-timed rate of
+ * whatever finished since the dashboard's previous poll — not diluted by
+ * idle wall clock the way a counter delta is. Two caveats the label has to
+ * carry: it reads 0 when nothing completed in the window, and because the
+ * scrape consumes the bucket, a second Prometheus scraper pointed at the
+ * same server would see only its own share of the work.
+ */
+const SERVER_GAUGE_NOTE =
+  "llama-server's own measurement, over the window since the dashboard's " +
+  'previous poll. Reads 0 when nothing finished in that window. Each scrape ' +
+  'resets the window, so another Prometheus scraper on the same server would ' +
+  'split these values with the dashboard.';
+
+const SPEC_GAUGE_NOTE =
+  ' With speculative decoding the server counts decode steps rather than ' +
+  'tokens here, so it reads lower than the token rate.';
+
+/** Secondary chip carrying the server-reported rate, when it reports one. */
+function ServerRateChip({
+  value,
+  fmt,
+  steps = false,
+}: {
+  value: number | undefined;
+  fmt: Settings['numberFormat'];
+  /** label as decode steps/s instead of tok/s (speculative decoding) */
+  steps?: boolean;
+}) {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
+  return (
+    <span className="chip neutral" title={SERVER_GAUGE_NOTE + (steps ? SPEC_GAUGE_NOTE : '')}>
+      {`server ${formatRate(value, fmt)} ${steps ? 'steps/s' : 'tok/s'}`}
+    </span>
+  );
+}
+
 export interface WidgetMeta {
   title: string;
   /** default size in grid units (12 columns, fixed-height rows) */
@@ -75,6 +117,8 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       const live = t?.derived.liveGenTokS ?? null;
       const useLive = !!t?.slots?.some((s) => s.processing) && live !== null;
       const value = useLive ? live : rollingRate(ticks, COUNTERS.tokensPredicted, ROLLING_MS);
+      // any speculative slot means the server's gauge counts decode steps
+      const spec = !!dash.slots?.some((s) => s.speculative);
       return (
         <KpiCard
           label="Generation throughput"
@@ -82,7 +126,10 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
           unit="rate"
           fmt={fmt}
           sub={
-            <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
+            <>
+              <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
+              <ServerRateChip value={dash.gauges?.[GAUGES.predictedTokS]} fmt={fmt} steps={spec} />
+            </>
           }
           note="collecting samples…"
         />
@@ -121,7 +168,12 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
           value={value}
           unit="rate"
           fmt={fmt}
-          sub={<span className="chip">{chip}</span>}
+          sub={
+            <>
+              <span className="chip">{chip}</span>
+              <ServerRateChip value={dash.gauges?.[GAUGES.promptTokS]} fmt={fmt} />
+            </>
+          }
           note="no prompt has finished yet"
         />
       );
