@@ -19,7 +19,8 @@
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "vite",

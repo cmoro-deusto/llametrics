@@ -3,14 +3,20 @@
 export type NumberFormat = 'human' | 'raw';
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
+/**
+ * Decimal (SI) step, matching the KB/MB/GB labels above. This used to
+ * divide by 1024 while still printing KB/MB/GB, which understated every
+ * size by ~2.4% per step — a 17.91 GB model read "16.68 GB".
+ */
+const STEP = 1000;
 
 export function formatBytes(n: number | null | undefined, fmt: NumberFormat = 'human'): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return '—';
   if (fmt === 'raw') return n.toLocaleString('en-US');
   let i = 0;
   let v = n;
-  while (v >= 1024 && i < UNITS.length - 1) {
-    v /= 1024;
+  while (Math.abs(v) >= STEP && i < UNITS.length - 1) {
+    v /= STEP;
     i++;
   }
   const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
@@ -40,7 +46,8 @@ export function formatPercent(n: number | null | undefined, fmt: NumberFormat = 
   return `${(n * 100).toFixed(fmt === 'raw' ? 3 : 1)}%`;
 }
 
-export function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—';
   if (!Number.isFinite(seconds) || seconds < 0) return '—';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -48,15 +55,4 @@ export function formatDuration(seconds: number): string {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
-}
-
-export function formatDateTime(ts: number | null | undefined): string {
-  if (ts === null || ts === undefined) return '—';
-  return new Date(ts * 1000).toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }

@@ -1,18 +1,16 @@
 /** Model cards from /models (name + merged numeric details). */
 import type { ModelCardData } from '../lib/api';
-import {
-  formatBytes,
-  formatCount,
-  formatDateTime,
-  type NumberFormat,
-} from '../lib/format';
+import { formatBytes, formatCount, type NumberFormat } from '../lib/format';
 
 export function ModelsCard({
   models,
   fmt,
+  stale = false,
 }: {
   models: ModelCardData[] | null;
   fmt: NumberFormat;
+  /** last poll could not reach /models — these values are older */
+  stale?: boolean;
 }) {
   if (!models) {
     return <span className="muted">waiting for /models…</span>;
@@ -22,6 +20,11 @@ export function ModelsCard({
   }
   return (
     <div className="model-grid">
+      {stale && (
+        <div className="muted" style={{ gridColumn: '1 / -1' }}>
+          /models is not answering — showing the last values received
+        </div>
+      )}
       {models.map((m) => (
         <div className="model-card" key={m.name}>
           <div className="model-name">{m.name}</div>
@@ -29,6 +32,10 @@ export function ModelsCard({
             <div className="model-aliases">aliases: {m.aliases.join(', ')}</div>
           )}
           <div className="chip-row">
+            {/* router-mode lifecycle state; a single-model server omits it */}
+            {m.status && (
+              <span className={m.status === 'loaded' ? 'chip' : 'chip neutral'}>{m.status}</span>
+            )}
             {m.ftype && <span className="chip">{m.ftype}</span>}
             {m.format && <span className="chip neutral">{m.format}</span>}
             {m.capabilities.map((c) => (
@@ -50,9 +57,6 @@ export function ModelsCard({
             <ModelStat k="vocab" v={formatCount(m.nVocab, fmt)} />
             <ModelStat k="embedding" v={m.nEmbD != null ? String(m.nEmbD) : '—'} />
           </div>
-          {m.created != null && (
-            <div className="muted">loaded {formatDateTime(m.created)}</div>
-          )}
         </div>
       ))}
     </div>

@@ -26,11 +26,21 @@ import {
 
 function Banner() {
   const dash = useDashboard();
-  if (dash.status === 'ok' || dash.status === 'idle' || !dash.lastError) return null;
+  if (dash.status === 'ok' || dash.status === 'idle') return null;
+  // While the model loads, llama-server's readiness middleware 503s EVERY
+  // endpoint, so /metrics fails too and the raw error is an unhelpful
+  // "/metrics returned HTTP 503". /health identifies that case, so say so.
+  const loading = dash.health?.state === 'loading';
+  if (!loading && !dash.lastError) return null;
   return (
-    <div className={`banner ${dash.status}`} role="alert">
-      <b>{dash.status === 'stale' ? 'Stale data' : 'Server unreachable'}</b>
-      <span>{dash.lastError}</span>
+    <div className={`banner ${loading ? 'stale' : dash.status}`} role="alert">
+      <b>{loading ? 'Loading model' : dash.status === 'stale' ? 'Stale data' : 'Server unreachable'}</b>
+      <span>
+        {loading
+          ? (dash.health?.message ?? 'The server is still loading the model.') +
+            ' No endpoint answers until it finishes.'
+          : dash.lastError}
+      </span>
       <span className="muted" style={{ marginLeft: 'auto' }}>
         auto-retrying…
       </span>

@@ -17,6 +17,7 @@ import {
   fetchSlots,
   normalizeBaseUrl,
   slotNextToken,
+  type HealthResult,
   type ModelCardData,
   type SlotInfo,
 } from './api';
@@ -26,6 +27,7 @@ import {
   GAUGES,
   SPEC_PER_POS,
   computeDerived,
+  isRateableGap,
   liveSlotRate,
   type CounterMap,
   type SlotLiveSample,
@@ -52,7 +54,12 @@ export interface DashboardState {
   lastTick: Tick | null;
   models: ModelCardData[] | null;
   slots: SlotInfo[] | null;
-  healthOk: boolean | null;
+  /** last /health answer: ready, loading the model, erroring, unreachable */
+  health: HealthResult | null;
+  /** true when the last tick could not refresh /slots (values are older) */
+  slotsStale: boolean;
+  /** true when the last tick could not refresh /models */
+  modelsStale: boolean;
 }
 
 const INITIAL: DashboardState = {
@@ -68,7 +75,9 @@ const INITIAL: DashboardState = {
   lastTick: null,
   models: null,
   slots: null,
-  healthOk: null,
+  health: null,
+  slotsStale: false,
+  modelsStale: false,
 };
 
 const BACKOFF_BASE_MS = 1000;
@@ -199,8 +208,17 @@ class DashboardEngine {
       // merge auxiliary results (independent of metrics success)
       const models = modelsRes.status === 'fulfilled' ? buildModelCards(modelsRes.value) : null;
       const slots = slotsRes.status === 'fulfilled' ? slotsRes.value : null;
-      const healthOk =
-        healthRes.status === 'fulfilled' ? healthRes.value.status === 'ok' : null;
+      // fetchHealth never rejects; a rejection here would be a bug, not a
+      // server state, so it maps to 'unreachable' like a dead socket
+      const health: HealthResult =
+        healthRes.status === 'fulfilled'
+          ? healthRes.value
+          : { state: 'unreachable', message: null, httpStatus: null };
+      // /metrics succeeding does not mean the other endpoints did: keeping
+      // the previous values silently is what made a failing /slots look
+      // live, so the staleness is tracked and shown per panel
+      const slotsStale = slots === null;
+      const modelsStale = models === null;
 
       if (metricsRes.status === 'fulfilled') {
         const idx = indexMetrics(parseMetrics(metricsRes.value));
@@ -253,17 +271,28 @@ class DashboardEngine {
           livePromptTokS: null,
         };
         if (prev && prevT !== null) {
-          const dt = Math.max(0.25, (now - prevT) / 1000);
+          const gapMs = now - prevT;
+          const dt = Math.max(0.25, gapMs / 1000);
+          // A hidden tab, a backoff streak, or a `prev` seeded from
+          // persisted history (7-day retention) can put hours between two
+          // samples. Wall-clock rates are meaningless across such a gap —
+          // report them as unknown rather than persisting a near-zero
+          // number that looks like a measurement. Ratio-style values
+          // (Δtokens/Δseconds prefill, cache/accept rates) divide two
+          // counter deltas and stay valid over any interval.
+          const rateable = isRateableGap(gapMs, settingsStore.get().pollMs);
           const d = computeDerived(prev, counters, dt);
           derived = {
-            genTokS: d.genTokS.value,
-            promptTokS: d.promptTokS.value,
+            genTokS: rateable ? d.genTokS.value : null,
+            promptTokS: rateable ? d.promptTokS.value : null,
             cacheHitRate: d.cacheHitRate.value,
             specAcceptRate: d.specAcceptRate.value,
             specTokensPerVerif: d.specTokensPerVerif.value,
             promptPrefillTokS: d.promptPrefillTokS.value,
-            liveGenTokS: liveSlotRate(prevS, curSlots, dt, 'nDecoded').rate,
-            livePromptTokS: liveSlotRate(prevS, curSlots, dt, 'nPromptProcessed').rate,
+            liveGenTokS: rateable ? liveSlotRate(prevS, curSlots, dt, 'nDecoded').rate : null,
+            livePromptTokS: rateable
+              ? liveSlotRate(prevS, curSlots, dt, 'nPromptProcessed').rate
+              : null,
           };
         }
 
@@ -292,7 +321,9 @@ class DashboardEngine {
           lastTick: tick,
           models: models ?? this.state.models,
           slots: slots ?? this.state.slots,
-          healthOk: healthOk ?? this.state.healthOk,
+          health,
+          slotsStale,
+          modelsStale,
         });
       } else {
         const err =
@@ -309,7 +340,9 @@ class DashboardEngine {
           failStreak,
           models: models ?? this.state.models,
           slots: slots ?? this.state.slots,
-          healthOk,
+          health,
+          slotsStale,
+          modelsStale,
         });
       }
     } finally {

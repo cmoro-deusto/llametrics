@@ -3,7 +3,9 @@ import {
   COUNTERS,
   computeDerived,
   computeSinceStart,
+  isRateableGap,
   liveSlotRate,
+  maxRateGapMs,
   rollingRate,
   type SlotLiveSample,
 } from '../metrics';
@@ -199,3 +201,20 @@ describe('liveSlotRate', () => {
   });
 });
 
+
+describe('rate-gap guard', () => {
+  it('scales with the poll interval but never below a minute', () => {
+    expect(maxRateGapMs(2000)).toBe(60_000);
+    expect(maxRateGapMs(1000)).toBe(60_000);
+    expect(maxRateGapMs(30_000)).toBe(300_000);
+  });
+
+  it('accepts normal and backed-off polls, rejects suspended-tab gaps', () => {
+    expect(isRateableGap(2_000, 2000)).toBe(true);
+    expect(isRateableGap(30_000, 2000)).toBe(true); // backoff streak
+    expect(isRateableGap(60_000, 2000)).toBe(true); // exactly at the bound
+    expect(isRateableGap(60_001, 2000)).toBe(false);
+    expect(isRateableGap(3 * 3600_000, 2000)).toBe(false); // hidden tab
+    expect(isRateableGap(-1, 2000)).toBe(false); // clock went backwards
+  });
+});

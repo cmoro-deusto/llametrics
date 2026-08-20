@@ -131,6 +131,11 @@ const MODELS: ModelsResponse = {
   ],
 };
 
+const setHidden = (hidden: boolean): void => {
+  Object.defineProperty(document, 'hidden', { value: hidden, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+};
+
 describe('dashboard engine: live slot rate wiring', () => {
   let slotCalls: number;
   let metricsCalls: number;
@@ -146,7 +151,7 @@ describe('dashboard engine: live slot rate wiring', () => {
       metricsCalls += 1;
       return metricsText(metricsCalls);
     });
-    vi.mocked(fetchHealth).mockResolvedValue({ status: 'ok' });
+    vi.mocked(fetchHealth).mockResolvedValue({ state: 'ok', message: null, httpStatus: 200 });
     vi.mocked(fetchModels).mockResolvedValue(MODELS);
 
     // simulate one active slot decoding at 25 tok/s (50 tokens per
@@ -182,6 +187,7 @@ describe('dashboard engine: live slot rate wiring', () => {
 
   afterEach(() => {
     dashboard.stop();
+    setHidden(false);
     vi.useRealTimers();
   });
 
@@ -207,5 +213,33 @@ describe('dashboard engine: live slot rate wiring', () => {
     await vi.advanceTimersByTimeAsync(POLL_MS);
     expect(dashboard.get().lastTick?.derived?.liveGenTokS).toBeCloseTo(25, 5);
     expect(dashboard.get().lastTick?.derived?.promptPrefillTokS).toBeCloseTo(1000, 5);
+  });
+
+  it('does not fabricate wall-clock rates across a suspended-tab gap', async () => {
+    dashboard.start();
+    await vi.advanceTimersByTimeAsync(50); // tick 1
+    await vi.advanceTimersByTimeAsync(POLL_MS); // tick 2: rates present
+    expect(dashboard.get().lastTick?.derived?.liveGenTokS).toBeCloseTo(25, 5);
+
+    // tab hidden: polling stops, wall clock keeps running for 30 min
+    setHidden(true);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+
+    // back to the tab: immediate tick, 30 min after the previous sample.
+    // The slot counters DID advance (+50 tokens), so without the guard
+    // this would persist 50/1800 = 0.03 tok/s as a measurement.
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(50);
+
+    const d = dashboard.get().lastTick?.derived;
+    expect(d?.liveGenTokS).toBeNull();
+    expect(d?.genTokS).toBeNull();
+    // ratio-style derivations divide two counter deltas, so they remain
+    // valid over any gap and must NOT be suppressed
+    expect(d?.promptPrefillTokS).toBeCloseTo(1000, 5);
+
+    // and the next normal poll resumes rating
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(dashboard.get().lastTick?.derived?.liveGenTokS).toBeCloseTo(25, 5);
   });
 });

@@ -5,13 +5,13 @@
 import type { ReactNode } from 'react';
 import { useDashboard } from '../lib/dashboard';
 import { useTicks } from '../hooks/useTicks';
-import { COUNTERS, GAUGES, rollingRate } from '../lib/metrics';
+import { COUNTERS, GAUGES, computeSinceStart, rollingRate } from '../lib/metrics';
+import { formatRate } from '../lib/format';
 import { normalizeBaseUrl } from '../lib/api';
 import { useSettings, type Settings } from '../lib/settings';
 import type { Tick } from '../lib/history';
 
-/** headline throughput KPIs smooth over the last minute; the instantaneous
- *  server gauge is kept visible as a "now" chip */
+/** headline throughput KPIs smooth over the last minute */
 const ROLLING_MS = 60_000;
 import { KpiCard } from './KpiCard';
 import { TrendChart, type ChartSeriesDef } from './TrendChart';
@@ -28,7 +28,7 @@ const TOK_S_SERIES: ChartSeriesDef[] = [
   // series squashes the other.
   // thin bars instead of a line: idle gaps read as empty space (no
   // connector diagonals) and short bursts stay visible
-  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived', bars: true },
+  { key: 'liveGenTokS', label: 'generation (live)', colorVar: 'chart-1', source: 'derived', bars: true, bin: 'peak' },
   {
     key: 'promptPrefillTokS',
     label: 'prompt (prefill)',
@@ -38,23 +38,69 @@ const TOK_S_SERIES: ChartSeriesDef[] = [
     // holds the last completed prompt's speed across idle gaps (like the KPI)
     fill: 'prev',
     yScale: 'y2',
+    // a rate: keep the fastest prompt in the bucket rather than whichever
+    // happened to finish last
+    bin: 'peak',
   },
 ];
 const REQUESTS_SERIES: ChartSeriesDef[] = [
-  { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true },
-  { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true },
+  // peak per bucket: these spend most of their time at 0, and the whole
+  // point of the chart is the moments they are not. Keeping the bucket's
+  // last value (the old behaviour) hid every short burst at wide windows.
+  { key: GAUGES.requestsProcessing, label: 'processing', colorVar: 'chart-3', source: 'gauges', step: true, bin: 'peak' },
+  { key: GAUGES.requestsDeferred, label: 'deferred', colorVar: 'chart-4', source: 'gauges', step: true, bin: 'peak' },
 ];
 const CACHE_SERIES: ChartSeriesDef[] = [
   // 0..1 ratio plotted as a percentage; holds the last measured rate
   // across idle gaps (a prompt only produces a new value when it ends)
-  { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev' },
+  // 'last', not peak: a percentage's bucket maximum would read as a
+  // better cache than the server actually delivered
+  { key: 'cacheHitRate', label: 'hit rate (%)', colorVar: 'chart-1', source: 'derived', step: true, scale: 100, fill: 'prev', bin: 'last' },
 ];
 const SPEC_SERIES: ChartSeriesDef[] = [
-  { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev' },
+  { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev', bin: 'last' },
 ];
-const BUSY_SERIES: ChartSeriesDef[] = [
-  { key: GAUGES.busySlotsPerDecode, label: 'avg busy slots', colorVar: 'chart-5', source: 'gauges', step: true },
-];
+
+/**
+ * The server's own throughput gauges.
+ *
+ * llama.cpp computes these from a bucket that the /metrics scrape itself
+ * resets (server-context.cpp: "the gauges are averaged over the window
+ * between two scrapes"), so the value is the true, server-timed rate of
+ * whatever finished since the dashboard's previous poll — not diluted by
+ * idle wall clock the way a counter delta is. Two caveats the label has to
+ * carry: it reads 0 when nothing completed in the window, and because the
+ * scrape consumes the bucket, a second Prometheus scraper pointed at the
+ * same server would see only its own share of the work.
+ */
+const SERVER_GAUGE_NOTE =
+  "llama-server's own measurement, over the window since the dashboard's " +
+  'previous poll. Reads 0 when nothing finished in that window. Each scrape ' +
+  'resets the window, so another Prometheus scraper on the same server would ' +
+  'split these values with the dashboard.';
+
+const SPEC_GAUGE_NOTE =
+  ' With speculative decoding the server counts decode steps rather than ' +
+  'tokens here, so it reads lower than the token rate.';
+
+/** Secondary chip carrying the server-reported rate, when it reports one. */
+function ServerRateChip({
+  value,
+  fmt,
+  steps = false,
+}: {
+  value: number | undefined;
+  fmt: Settings['numberFormat'];
+  /** label as decode steps/s instead of tok/s (speculative decoding) */
+  steps?: boolean;
+}) {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
+  return (
+    <span className="chip neutral" title={SERVER_GAUGE_NOTE + (steps ? SPEC_GAUGE_NOTE : '')}>
+      {`server ${formatRate(value, fmt)} ${steps ? 'steps/s' : 'tok/s'}`}
+    </span>
+  );
+}
 
 export interface WidgetMeta {
   title: string;
@@ -79,6 +125,8 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       const live = t?.derived.liveGenTokS ?? null;
       const useLive = !!t?.slots?.some((s) => s.processing) && live !== null;
       const value = useLive ? live : rollingRate(ticks, COUNTERS.tokensPredicted, ROLLING_MS);
+      // any speculative slot means the server's gauge counts decode steps
+      const spec = !!dash.slots?.some((s) => s.speculative);
       return (
         <KpiCard
           label="Generation throughput"
@@ -86,7 +134,10 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
           unit="rate"
           fmt={fmt}
           sub={
-            <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
+            <>
+              <span className="chip">{useLive ? 'live · from /slots' : '60s rolling'}</span>
+              <ServerRateChip value={dash.gauges?.[GAUGES.predictedTokS]} fmt={fmt} steps={spec} />
+            </>
           }
           note="collecting samples…"
         />
@@ -125,24 +176,37 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
           value={value}
           unit="rate"
           fmt={fmt}
-          sub={<span className="chip">{chip}</span>}
+          sub={
+            <>
+              <span className="chip">{chip}</span>
+              <ServerRateChip value={dash.gauges?.[GAUGES.promptTokS]} fmt={fmt} />
+            </>
+          }
           note="no prompt has finished yet"
         />
       );
     },
   },
   'kpi:session-gen-tok-s': {
-    meta: { title: 'Session generation rate', w: 2, h: 2 },
+    meta: { title: 'Avg generation (since start)', w: 2, h: 2 },
     render: () => {
       const dash = useDashboard();
+      const fmt = useFmt();
+      // Was derived.genTokS = Δtokens_predicted / wall-clock poll interval.
+      // tokens_predicted_total is only credited when a task ENDS, so on a
+      // 2 s poll that read 0.00 through the whole generation and then
+      // spiked to a fictional several-hundred tok/s on the single tick the
+      // task completed. The honest number is the server's own lifetime
+      // ratio: generated tokens / time actually spent generating.
+      const since = dash.counters ? computeSinceStart(dash.counters) : null;
       return (
         <KpiCard
-          label="Session generation rate"
-          value={dash.lastTick?.derived.genTokS ?? null}
+          label="Avg generation (since start)"
+          value={since?.genTokS ?? null}
           unit="rate"
-          fmt={useFmt()}
-          sub={<span className="chip">avg over last interval</span>}
-          note="needs two samples"
+          fmt={fmt}
+          sub={<span className="chip">generated tokens / generation time</span>}
+          note="nothing generated yet"
         />
       );
     },
@@ -229,23 +293,42 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       <TrendChart ticks={ticks} series={SPEC_SERIES} unit="percent" />
     ),
   },
+  // NOTE: the id keeps its 'chart:' prefix so existing saved layouts and
+  // widgetOrder entries keep resolving — it is a KPI tile now.
   'chart:busy-slots': {
-    meta: { title: 'Busy slots per decode', w: 6, h: 3 },
-    render: ({ ticks }) => <TrendChart ticks={ticks} series={BUSY_SERIES} />,
+    meta: { title: 'Avg busy slots per decode', w: 2, h: 2 },
+    render: () => {
+      // llamacpp:n_busy_slots_per_decode = n_busy_slots / n_decode, and
+      // upstream accumulates BOTH since server start (server-task.cpp).
+      // Plotted on a time axis it read as live concurrency while actually
+      // being a lifetime mean that flattens out after a few hours of
+      // uptime. Shown as a single since-start number instead.
+      const value = useGauge(GAUGES.busySlotsPerDecode);
+      return (
+        <KpiCard
+          label="Avg busy slots per decode"
+          value={value}
+          unit="num"
+          fmt={useFmt()}
+          sub={<span className="chip">since server start</span>}
+          note="no decode has run yet"
+        />
+      );
+    },
   },
 
   models: {
     meta: { title: 'Models', w: 4, h: 4 },
     render: () => {
       const dash = useDashboard();
-      return <ModelsCard models={dash.models} fmt={useFmt()} />;
+      return <ModelsCard models={dash.models} fmt={useFmt()} stale={dash.modelsStale} />;
     },
   },
   slots: {
     meta: { title: 'Slots', w: 4, h: 4 },
     render: () => {
       const dash = useDashboard();
-      return <SlotsCard slots={dash.slots} fmt={useFmt()} />;
+      return <SlotsCard slots={dash.slots} fmt={useFmt()} stale={dash.slotsStale} />;
     },
   },
   counters: {
