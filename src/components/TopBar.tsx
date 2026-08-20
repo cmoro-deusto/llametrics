@@ -10,6 +10,25 @@ const STATUS_LABEL: Record<string, string> = {
   down: 'unreachable',
 };
 
+/**
+ * /health knows things the /metrics status cannot express: while the model
+ * loads, every endpoint 503s, so the metrics-derived status is merely
+ * 'down' when the truthful answer is "it is starting up". Health takes
+ * precedence in exactly those cases.
+ */
+function connLabel(
+  status: string,
+  health: { state: string; message: string | null } | null,
+): { dot: 'ok' | 'stale' | 'down' | 'idle'; label: string } {
+  if (health?.state === 'loading') return { dot: 'stale', label: 'loading model…' };
+  if (status === 'idle') return { dot: 'idle', label: STATUS_LABEL.idle };
+  if (health?.state === 'error' && status !== 'ok') {
+    return { dot: 'down', label: health.message ? `server error: ${health.message}` : 'server error' };
+  }
+  const dot = status === 'ok' ? 'ok' : status === 'stale' ? 'stale' : 'down';
+  return { dot, label: STATUS_LABEL[status] ?? status };
+}
+
 export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const settings = useSettings();
   const dash = useDashboard();
@@ -23,6 +42,8 @@ export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
       : models.length === 1
         ? models[0].name
         : `${models.length} models`;
+
+  const conn = connLabel(dash.status, dash.health);
 
   const currentUrl = settings.baseUrl;
   const options = [
@@ -38,8 +59,8 @@ export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
       <span className="brand">
         <span aria-hidden>🦙</span> llametrics
       </span>
-      <span className={`status-dot ${dash.status}`} aria-hidden />
-      <span className="status-label">{STATUS_LABEL[dash.status]}</span>
+      <span className={`status-dot ${conn.dot}`} aria-hidden />
+      <span className="status-label">{conn.label}</span>
       {modelLabel && (
         <span
           className="model-name"

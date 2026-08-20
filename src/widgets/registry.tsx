@@ -261,14 +261,14 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     meta: { title: 'Models', w: 4, h: 4 },
     render: () => {
       const dash = useDashboard();
-      return <ModelsCard models={dash.models} fmt={useFmt()} />;
+      return <ModelsCard models={dash.models} fmt={useFmt()} stale={dash.modelsStale} />;
     },
   },
   slots: {
     meta: { title: 'Slots', w: 4, h: 4 },
     render: () => {
       const dash = useDashboard();
-      return <SlotsCard slots={dash.slots} fmt={useFmt()} />;
+      return <SlotsCard slots={dash.slots} fmt={useFmt()} stale={dash.slotsStale} />;
     },
   },
   counters: {

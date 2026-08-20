@@ -26,11 +26,37 @@ export interface ModelInfo {
   details: ModelDetails;
 }
 
+/**
+ * Per-model lifecycle state, reported only by the multi-model router
+ * (server-models.h `server_model_status_to_string`). A single-model
+ * server omits the field entirely.
+ */
+export type ModelStatus =
+  | 'downloading'
+  | 'downloaded'
+  | 'unloaded'
+  | 'loading'
+  | 'loaded'
+  | 'sleeping'
+  | 'unknown';
+
+const MODEL_STATUSES: readonly string[] = [
+  'downloading',
+  'downloaded',
+  'unloaded',
+  'loading',
+  'loaded',
+  'sleeping',
+  'unknown',
+];
+
 export interface ModelDatum {
   id: string;
   aliases: string[];
   tags: string[];
   object: string;
+  /** router mode only; absent on a single-model server */
+  status?: string;
   /**
    * OpenAI-compat only: llama.cpp fills this with `std::time(0)` at
    * REQUEST time (server-context.cpp `get_res_model_info`), so it is the
@@ -135,8 +161,34 @@ export function slotNextToken(slot: SlotInfo): SlotNextToken | null {
   return Array.isArray(nt) ? nt[0] ?? null : nt;
 }
 
+/**
+ * What llama-server actually tells us about its readiness.
+ *
+ * `/health` has exactly two success shapes upstream:
+ *  - HTTP 200 `{"status":"ok"}` once the model is up
+ *    (server-context.cpp `get_health`), and
+ *  - HTTP 503 `{"error":{"message":"Loading model","type":
+ *    "unavailable_error","code":503}}` from the readiness middleware
+ *    (server-http.cpp `middleware_server_state`), which blocks EVERY
+ *    endpoint until the model finishes loading — so a loading server also
+ *    fails /metrics, and without reading /health the dashboard can only
+ *    report a bare "HTTP 503".
+ */
+export type HealthState = 'ok' | 'loading' | 'error' | 'unreachable';
+
+export interface HealthResult {
+  state: HealthState;
+  /** the server's own message, when it provided one */
+  message: string | null;
+  httpStatus: number | null;
+}
+
 export interface HealthResponse {
   status: string;
+}
+
+interface HealthErrorBody {
+  error?: { message?: string; type?: string; code?: number };
 }
 
 /**
@@ -156,6 +208,8 @@ export interface ModelCardData {
   nCtxTrain: number | null;
   nVocab: number | null;
   nEmbD: number | null;
+  /** router-reported lifecycle state, null when the server doesn't say */
+  status: ModelStatus | null;
 }
 
 export function buildModelCards(resp: ModelsResponse): ModelCardData[] {
@@ -179,6 +233,10 @@ export function buildModelCards(resp: ModelsResponse): ModelCardData[] {
       nCtxTrain: d ? d.meta.n_ctx_train : null,
       nVocab: d ? d.meta.n_vocab : null,
       nEmbD: d ? d.meta.n_embd : null,
+      status:
+        d?.status !== undefined && MODEL_STATUSES.includes(d.status)
+          ? (d.status as ModelStatus)
+          : null,
     };
   });
 }
@@ -218,8 +276,34 @@ export function fetchSlots(baseUrl: string): Promise<SlotInfo[]> {
   return fetchJson<SlotInfo[]>(baseUrl, '/slots');
 }
 
-export function fetchHealth(baseUrl: string): Promise<HealthResponse> {
-  return fetchJson<HealthResponse>(baseUrl, '/health');
+/**
+ * Never throws: a non-200 /health is information, not a failure, so the
+ * body is read and classified instead of being turned into an error the
+ * way fetchJson would.
+ */
+export async function fetchHealth(baseUrl: string): Promise<HealthResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/health`, { cache: 'no-store' });
+  } catch {
+    return { state: 'unreachable', message: null, httpStatus: null };
+  }
+  if (res.ok) {
+    const body = await res.json().catch(() => null) as HealthResponse | null;
+    return body?.status === 'ok'
+      ? { state: 'ok', message: null, httpStatus: res.status }
+      : { state: 'error', message: body?.status ?? null, httpStatus: res.status };
+  }
+  const body = (await res.json().catch(() => null)) as HealthErrorBody | null;
+  const message = body?.error?.message ?? null;
+  // 503 is the readiness middleware's only status, and it is the right
+  // reading for a 503 from anything else in front of the server too:
+  // temporarily unavailable, keep retrying. Any other code is a real error.
+  return {
+    state: res.status === 503 ? 'loading' : 'error',
+    message,
+    httpStatus: res.status,
+  };
 }
 
 export async function fetchMetricsText(baseUrl: string): Promise<string> {

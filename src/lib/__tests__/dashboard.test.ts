@@ -151,7 +151,7 @@ describe('dashboard engine: live slot rate wiring', () => {
       metricsCalls += 1;
       return metricsText(metricsCalls);
     });
-    vi.mocked(fetchHealth).mockResolvedValue({ status: 'ok' });
+    vi.mocked(fetchHealth).mockResolvedValue({ state: 'ok', message: null, httpStatus: 200 });
     vi.mocked(fetchModels).mockResolvedValue(MODELS);
 
     // simulate one active slot decoding at 25 tok/s (50 tokens per

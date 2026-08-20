@@ -32,9 +32,12 @@ const PARAM_KEYS = [
 export function SlotsCard({
   slots,
   fmt,
+  stale = false,
 }: {
   slots: SlotInfo[] | null;
   fmt: NumberFormat;
+  /** last poll could not reach /slots — these values are frozen */
+  stale?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -51,6 +54,11 @@ export function SlotsCard({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {stale && (
+        <div className="muted">
+          /slots is not answering — these rows are frozen at the last reply
+        </div>
+      )}
       {slots.map((s) => {
         const open = expanded.has(s.id);
         // Upstream serializes the task fields from `task ? task : task_prev`,
