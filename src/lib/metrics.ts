@@ -213,6 +213,35 @@ export function liveSlotRate(
   return { rate: tokens > 0 ? tokens / dt : null, active };
 }
 
+/**
+ * Longest gap between two samples that still yields a meaningful
+ * wall-clock rate, given the configured poll interval.
+ *
+ * Polling pauses while the tab is hidden, backs off to 30 s while the
+ * server is unreachable, and `prev` can be seeded from IndexedDB (7-day
+ * retention) after a reload — so the gap between two consecutive samples
+ * is not bounded by the poll interval. Dividing a real counter delta by
+ * hours of wall clock produces a near-zero "rate" that is indistinguishable
+ * from a measurement once persisted, so anything beyond this bound is
+ * reported as unknown instead.
+ *
+ * 10 polls (min 60 s) absorbs a slow tick or a short backoff streak while
+ * still rejecting suspended-tab and reload gaps.
+ */
+export function maxRateGapMs(pollMs: number): number {
+  return Math.max(60_000, 10 * pollMs);
+}
+
+/**
+ * Whether a gap between two samples is short enough for wall-clock rates
+ * (tokens per second of elapsed time). Ratio-style derivations —
+ * cache hit rate, accept rate, Δtokens/Δseconds prefill — divide one
+ * counter delta by another and stay valid over any gap.
+ */
+export function isRateableGap(gapMs: number, pollMs: number): boolean {
+  return gapMs >= 0 && gapMs <= maxRateGapMs(pollMs);
+}
+
 /** A sample carrying cumulative counters, newest last. */
 export interface RateSample {
   t: number;

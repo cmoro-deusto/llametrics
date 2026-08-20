@@ -26,6 +26,7 @@ import {
   GAUGES,
   SPEC_PER_POS,
   computeDerived,
+  isRateableGap,
   liveSlotRate,
   type CounterMap,
   type SlotLiveSample,
@@ -253,17 +254,28 @@ class DashboardEngine {
           livePromptTokS: null,
         };
         if (prev && prevT !== null) {
-          const dt = Math.max(0.25, (now - prevT) / 1000);
+          const gapMs = now - prevT;
+          const dt = Math.max(0.25, gapMs / 1000);
+          // A hidden tab, a backoff streak, or a `prev` seeded from
+          // persisted history (7-day retention) can put hours between two
+          // samples. Wall-clock rates are meaningless across such a gap —
+          // report them as unknown rather than persisting a near-zero
+          // number that looks like a measurement. Ratio-style values
+          // (Δtokens/Δseconds prefill, cache/accept rates) divide two
+          // counter deltas and stay valid over any interval.
+          const rateable = isRateableGap(gapMs, settingsStore.get().pollMs);
           const d = computeDerived(prev, counters, dt);
           derived = {
-            genTokS: d.genTokS.value,
-            promptTokS: d.promptTokS.value,
+            genTokS: rateable ? d.genTokS.value : null,
+            promptTokS: rateable ? d.promptTokS.value : null,
             cacheHitRate: d.cacheHitRate.value,
             specAcceptRate: d.specAcceptRate.value,
             specTokensPerVerif: d.specTokensPerVerif.value,
             promptPrefillTokS: d.promptPrefillTokS.value,
-            liveGenTokS: liveSlotRate(prevS, curSlots, dt, 'nDecoded').rate,
-            livePromptTokS: liveSlotRate(prevS, curSlots, dt, 'nPromptProcessed').rate,
+            liveGenTokS: rateable ? liveSlotRate(prevS, curSlots, dt, 'nDecoded').rate : null,
+            livePromptTokS: rateable
+              ? liveSlotRate(prevS, curSlots, dt, 'nPromptProcessed').rate
+              : null,
           };
         }
 
