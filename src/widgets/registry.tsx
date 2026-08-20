@@ -5,13 +5,12 @@
 import type { ReactNode } from 'react';
 import { useDashboard } from '../lib/dashboard';
 import { useTicks } from '../hooks/useTicks';
-import { COUNTERS, GAUGES, rollingRate } from '../lib/metrics';
+import { COUNTERS, GAUGES, computeSinceStart, rollingRate } from '../lib/metrics';
 import { normalizeBaseUrl } from '../lib/api';
 import { useSettings, type Settings } from '../lib/settings';
 import type { Tick } from '../lib/history';
 
-/** headline throughput KPIs smooth over the last minute; the instantaneous
- *  server gauge is kept visible as a "now" chip */
+/** headline throughput KPIs smooth over the last minute */
 const ROLLING_MS = 60_000;
 import { KpiCard } from './KpiCard';
 import { TrendChart, type ChartSeriesDef } from './TrendChart';
@@ -51,9 +50,6 @@ const CACHE_SERIES: ChartSeriesDef[] = [
 ];
 const SPEC_SERIES: ChartSeriesDef[] = [
   { key: 'specAcceptRate', label: 'accept rate (%)', colorVar: 'chart-3', source: 'derived', step: true, scale: 100, fill: 'prev' },
-];
-const BUSY_SERIES: ChartSeriesDef[] = [
-  { key: GAUGES.busySlotsPerDecode, label: 'avg busy slots', colorVar: 'chart-5', source: 'gauges', step: true },
 ];
 
 export interface WidgetMeta {
@@ -132,17 +128,25 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
     },
   },
   'kpi:session-gen-tok-s': {
-    meta: { title: 'Session generation rate', w: 2, h: 2 },
+    meta: { title: 'Avg generation (since start)', w: 2, h: 2 },
     render: () => {
       const dash = useDashboard();
+      const fmt = useFmt();
+      // Was derived.genTokS = Δtokens_predicted / wall-clock poll interval.
+      // tokens_predicted_total is only credited when a task ENDS, so on a
+      // 2 s poll that read 0.00 through the whole generation and then
+      // spiked to a fictional several-hundred tok/s on the single tick the
+      // task completed. The honest number is the server's own lifetime
+      // ratio: generated tokens / time actually spent generating.
+      const since = dash.counters ? computeSinceStart(dash.counters) : null;
       return (
         <KpiCard
-          label="Session generation rate"
-          value={dash.lastTick?.derived.genTokS ?? null}
+          label="Avg generation (since start)"
+          value={since?.genTokS ?? null}
           unit="rate"
-          fmt={useFmt()}
-          sub={<span className="chip">avg over last interval</span>}
-          note="needs two samples"
+          fmt={fmt}
+          sub={<span className="chip">generated tokens / generation time</span>}
+          note="nothing generated yet"
         />
       );
     },
@@ -229,9 +233,28 @@ export const WIDGETS: Record<string, { meta: WidgetMeta; render: (props: WidgetR
       <TrendChart ticks={ticks} series={SPEC_SERIES} unit="percent" />
     ),
   },
+  // NOTE: the id keeps its 'chart:' prefix so existing saved layouts and
+  // widgetOrder entries keep resolving — it is a KPI tile now.
   'chart:busy-slots': {
-    meta: { title: 'Busy slots per decode', w: 6, h: 3 },
-    render: ({ ticks }) => <TrendChart ticks={ticks} series={BUSY_SERIES} />,
+    meta: { title: 'Avg busy slots per decode', w: 2, h: 2 },
+    render: () => {
+      // llamacpp:n_busy_slots_per_decode = n_busy_slots / n_decode, and
+      // upstream accumulates BOTH since server start (server-task.cpp).
+      // Plotted on a time axis it read as live concurrency while actually
+      // being a lifetime mean that flattens out after a few hours of
+      // uptime. Shown as a single since-start number instead.
+      const value = useGauge(GAUGES.busySlotsPerDecode);
+      return (
+        <KpiCard
+          label="Avg busy slots per decode"
+          value={value}
+          unit="num"
+          fmt={useFmt()}
+          sub={<span className="chip">since server start</span>}
+          note="no decode has run yet"
+        />
+      );
+    },
   },
 
   models: {
