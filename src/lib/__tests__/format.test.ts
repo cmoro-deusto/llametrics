@@ -68,6 +68,12 @@ describe('formatPercent', () => {
 });
 
 describe('formatDuration', () => {
+  it('distinguishes a missing counter from zero elapsed time', () => {
+    expect(formatDuration(undefined)).toBe('—');
+    expect(formatDuration(null)).toBe('—');
+    expect(formatDuration(0)).toBe('0s');
+  });
+
   it('formats seconds', () => {
     expect(formatDuration(45)).toBe('45s');
     expect(formatDuration(125)).toBe('2m 5s');

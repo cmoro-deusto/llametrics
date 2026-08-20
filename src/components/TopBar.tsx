@@ -1,5 +1,7 @@
 /** Sticky top bar: brand, connection status, model name, endpoint switcher, settings. */
 import { settingsStore, useSettings } from '../lib/settings';
+import { useNow } from '../hooks/useNow';
+import { formatDuration } from '../lib/format';
 import { useDashboard } from '../lib/dashboard';
 import { refreshDashboardSettings } from '../lib/dashboard';
 
@@ -44,6 +46,14 @@ export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
         : `${models.length} models`;
 
   const conn = connLabel(dash.status, dash.health);
+  // Age of the newest data on screen. Every panel keeps rendering the last
+  // values while a server is unreachable, with nothing saying how old they
+  // are; shown once the data is meaningfully behind the poll cadence so a
+  // healthy dashboard is not littered with "1s ago".
+  const now = useNow();
+  const dataAgeMs = dash.lastOkAt !== null ? now - dash.lastOkAt : null;
+  const showAge =
+    dataAgeMs !== null && dataAgeMs > Math.max(5000, settings.pollMs * 3);
 
   const currentUrl = settings.baseUrl;
   const options = [
@@ -61,6 +71,11 @@ export function TopBar({ onOpenSettings }: { onOpenSettings: () => void }) {
       </span>
       <span className={`status-dot ${conn.dot}`} aria-hidden />
       <span className="status-label">{conn.label}</span>
+      {showAge && (
+        <span className="status-label" title="Age of the newest data on screen">
+          · data {formatDuration(dataAgeMs! / 1000)} old
+        </span>
+      )}
       {modelLabel && (
         <span
           className="model-name"

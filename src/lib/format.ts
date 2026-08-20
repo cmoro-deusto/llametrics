@@ -46,7 +46,8 @@ export function formatPercent(n: number | null | undefined, fmt: NumberFormat = 
   return `${(n * 100).toFixed(fmt === 'raw' ? 3 : 1)}%`;
 }
 
-export function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—';
   if (!Number.isFinite(seconds) || seconds < 0) return '—';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);

@@ -27,9 +27,9 @@ export function CountersCard({
       <div className="counters-table">
         <Row k="prompt tokens (uncached)" v={formatCount(c[COUNTERS.promptTokens], fmt)} />
         <Row k="prompt tokens (cached)" v={formatCount(c[COUNTERS.promptTokensCached], fmt)} />
-        <Row k="prompt time" v={formatDuration(c[COUNTERS.promptSeconds] ?? 0)} />
+        <Row k="prompt time" v={formatDuration(c[COUNTERS.promptSeconds])} />
         <Row k="generated tokens" v={formatCount(c[COUNTERS.tokensPredicted], fmt)} />
-        <Row k="generation time" v={formatDuration(c[COUNTERS.tokensPredictedSeconds] ?? 0)} />
+        <Row k="generation time" v={formatDuration(c[COUNTERS.tokensPredictedSeconds])} />
         <Row k="llama_decode() calls" v={formatCount(c[COUNTERS.nDecode], fmt)} />
         <Row k="max sequence length" v={formatCount(c[COUNTERS.nTokensMax], fmt)} />
         <Row
